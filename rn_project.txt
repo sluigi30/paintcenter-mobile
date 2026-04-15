@@ -1,0 +1,2120 @@
+
+===== C:\laragon\www\paintcenter-mobile\app\(auth)\login.jsx =====
+
+import { useState } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform
+} from 'react-native';
+import { router } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
+
+export default function Login() {
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const { login, isLoading }    = useAuthStore();
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields.');
+      return;
+    }
+    const result = await login(email, password);
+    if (result.success) {
+      router.replace('/(tabs)');
+    } else {
+      Alert.alert('Login Failed', result.message);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.inner}>
+        <Text style={styles.logo}>🎨</Text>
+        <Text style={styles.title}>NCM Paint Center</Text>
+        <Text style={styles.subtitle}>Sign in to your account</Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Email"
+          placeholderTextColor="#999"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          placeholderTextColor="#999"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+        />
+
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleLogin}
+          disabled={isLoading}
+        >
+          {isLoading
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.buttonText}>Sign In</Text>
+          }
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
+          <Text style={styles.link}>Don't have an account? <Text style={styles.linkBold}>Register</Text></Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: '#fff' },
+  inner:       { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  logo:        { fontSize: 64, textAlign: 'center', marginBottom: 12 },
+  title:       { fontSize: 28, fontWeight: '700', textAlign: 'center', color: '#1a1a1a' },
+  subtitle:    { fontSize: 15, textAlign: 'center', color: '#666', marginBottom: 32, marginTop: 4 },
+  input:       {
+    borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 14, fontSize: 15,
+    marginBottom: 14, backgroundColor: '#fafafa', color: '#1a1a1a',
+  },
+  button:      {
+    backgroundColor: '#f97316', borderRadius: 12,
+    paddingVertical: 16, alignItems: 'center', marginTop: 8, marginBottom: 20,
+  },
+  buttonText:  { color: '#fff', fontSize: 16, fontWeight: '600' },
+  link:        { textAlign: 'center', color: '#666', fontSize: 14 },
+  linkBold:    { color: '#f97316', fontWeight: '600' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(auth)\register.jsx =====
+
+import { useState } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity,
+  StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView,
+  Platform, ScrollView
+} from 'react-native';
+import { router } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
+
+export default function Register() {
+  const [form, setForm]      = useState({
+    first_name: '', last_name: '', email: '',
+    phone: '', address: '', password: '', password_confirmation: '',
+  });
+  const { register, isLoading } = useAuthStore();
+
+  const update = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  const handleRegister = async () => {
+    if (!form.first_name || !form.last_name || !form.email || !form.password) {
+      Alert.alert('Error', 'Please fill in all required fields.');
+      return;
+    }
+    if (form.password !== form.password_confirmation) {
+      Alert.alert('Error', 'Passwords do not match.');
+      return;
+    }
+    const result = await register(form);
+    if (result.success) {
+      router.replace('/(tabs)');
+    } else {
+      Alert.alert('Registration Failed', result.message);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={styles.inner}>
+        <Text style={styles.title}>Create Account</Text>
+        <Text style={styles.subtitle}>Join NCM Paint Center</Text>
+
+        {[
+          { key: 'first_name',           label: 'First Name *' },
+          { key: 'last_name',            label: 'Last Name *' },
+          { key: 'email',                label: 'Email *', keyboard: 'email-address' },
+          { key: 'phone',                label: 'Phone', keyboard: 'phone-pad' },
+          { key: 'address',              label: 'Address' },
+          { key: 'password',             label: 'Password *', secure: true },
+          { key: 'password_confirmation', label: 'Confirm Password *', secure: true },
+        ].map(({ key, label, keyboard, secure }) => (
+          <TextInput
+            key={key}
+            style={styles.input}
+            placeholder={label}
+            placeholderTextColor="#999"
+            value={form[key]}
+            onChangeText={v => update(key, v)}
+            keyboardType={keyboard || 'default'}
+            secureTextEntry={secure}
+            autoCapitalize="none"
+          />
+        ))}
+
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleRegister}
+          disabled={isLoading}
+        >
+          {isLoading
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.buttonText}>Create Account</Text>
+          }
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.link}>Already have an account? <Text style={styles.linkBold}>Sign In</Text></Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:  { flex: 1, backgroundColor: '#fff' },
+  inner:      { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
+  title:      { fontSize: 28, fontWeight: '700', textAlign: 'center', color: '#1a1a1a', marginBottom: 4 },
+  subtitle:   { fontSize: 15, textAlign: 'center', color: '#666', marginBottom: 28 },
+  input:      {
+    borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 14, fontSize: 15,
+    marginBottom: 14, backgroundColor: '#fafafa', color: '#1a1a1a',
+  },
+  button:     {
+    backgroundColor: '#f97316', borderRadius: 12,
+    paddingVertical: 16, alignItems: 'center', marginTop: 8, marginBottom: 20,
+  },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  link:       { textAlign: 'center', color: '#666', fontSize: 14 },
+  linkBold:   { color: '#f97316', fontWeight: '600' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(auth)\_layout.jsx =====
+
+import { Stack } from 'expo-router';
+
+export default function AuthLayout() {
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\cart.jsx =====
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity,
+  StyleSheet, ActivityIndicator, Image, Alert
+} from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export default function Cart() {
+  const [items, setItems]     = useState([]);
+  const [total, setTotal]     = useState(0);
+  const [loading, setLoading] = useState(true);
+  const { token }             = useAuthStore();
+
+  const fetchCart = async () => {
+    try {
+      const res  = await fetch(`${API_URL}/cart`, {
+        headers: {
+          'Accept':        'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+    } catch (e) {
+      console.log('Cart error:', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(useCallback(() => {
+    fetchCart();
+  }, []));
+
+  const updateQty = async (productId, quantity) => {
+    if (quantity < 1) {
+      removeItem(productId);
+      return;
+    }
+    await fetch(`${API_URL}/cart/${productId}`, {
+      method:  'PUT',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ quantity }),
+    });
+    fetchCart();
+  };
+
+  const removeItem = async (productId) => {
+    Alert.alert('Remove Item', 'Remove this item from cart?', [
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await fetch(`${API_URL}/cart/${productId}`, {
+            method:  'DELETE',
+            headers: {
+              'Accept':        'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          fetchCart();
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+  }
+
+  if (items.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <Text style={styles.emptyIcon}>🛒</Text>
+        <Text style={styles.emptyTitle}>Your cart is empty</Text>
+        <Text style={styles.emptySubtitle}>Add some paints to get started!</Text>
+        <TouchableOpacity style={styles.shopBtn} onPress={() => router.push('/(tabs)')}>
+          <Text style={styles.shopBtnText}>Browse Products</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>My Cart</Text>
+        <Text style={styles.count}>{items.length} item(s)</Text>
+      </View>
+
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.product_id.toString()}
+        contentContainerStyle={styles.list}
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <View style={[styles.thumb, { backgroundColor: item.hex_code || '#f0f0f0' }]}>
+              {item.image ? (
+                <Image
+                  source={{ uri: `${API_URL.replace('/api', '')}/storage/${item.image}` }}
+                  style={styles.thumb}
+                  resizeMode="cover"
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.info}>
+              <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+              <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
+
+              <View style={styles.qtyRow}>
+                <TouchableOpacity
+                  style={styles.qtyBtn}
+                  onPress={() => updateQty(item.product_id, item.quantity - 1)}
+                >
+                  <Text style={styles.qtyBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.qty}>{item.quantity}</Text>
+                <TouchableOpacity
+                  style={styles.qtyBtn}
+                  onPress={() => updateQty(item.product_id, item.quantity + 1)}
+                >
+                  <Text style={styles.qtyBtnText}>+</Text>
+                </TouchableOpacity>
+                <Text style={styles.subtotal}>
+                  = ₱{parseFloat(item.subtotal).toLocaleString()}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.removeBtn}
+              onPress={() => removeItem(item.product_id)}
+            >
+              <Text style={styles.removeText}>🗑</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
+
+      <View style={styles.footer}>
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>Total ({items.length} items)</Text>
+          <Text style={styles.totalAmount}>₱{parseFloat(total).toLocaleString()}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.checkoutBtn}
+          onPress={() => router.push('/checkout')}
+        >
+          <Text style={styles.checkoutBtnText}>Proceed to Checkout →</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:      { flex: 1, backgroundColor: '#f5f5f5' },
+  center:         { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  empty:          { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  emptyIcon:      { fontSize: 72, marginBottom: 16 },
+  emptyTitle:     { fontSize: 22, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
+  emptySubtitle:  { fontSize: 15, color: '#999', marginBottom: 24, textAlign: 'center' },
+  shopBtn:        { backgroundColor: '#f97316', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
+  shopBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+  header:         { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  title:          { fontSize: 24, fontWeight: '700', color: '#fff' },
+  count:          { fontSize: 14, color: 'rgba(255,255,255,0.85)' },
+  list:           { padding: 16, paddingBottom: 200 },
+  card:           { backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, flexDirection: 'row', padding: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  thumb:          { width: 80, height: 80, borderRadius: 10, overflow: 'hidden' },
+  info:           { flex: 1, marginLeft: 12 },
+  name:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a', marginBottom: 4 },
+  price:          { fontSize: 15, fontWeight: '700', color: '#f97316', marginBottom: 8 },
+  qtyRow:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyBtn:         { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
+  qtyBtnText:     { fontSize: 16, color: '#1a1a1a', fontWeight: '700' },
+  qty:            { fontSize: 15, fontWeight: '600', minWidth: 20, textAlign: 'center' },
+  subtotal:       { fontSize: 12, color: '#666', marginLeft: 4 },
+  removeBtn:      { padding: 8, justifyContent: 'flex-start' },
+  removeText:     { fontSize: 18 },
+  footer:         { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, paddingBottom: 34, borderTopWidth: 1, borderTopColor: '#e0e0e0', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 8 },
+  totalRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  totalLabel:     { fontSize: 15, color: '#666' },
+  totalAmount:    { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
+  checkoutBtn:    { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  checkoutBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\index.jsx =====
+
+import { useState, useEffect } from 'react';
+import {
+  View, Text, FlatList, TextInput, TouchableOpacity,
+  StyleSheet, ActivityIndicator, RefreshControl, Image
+} from 'react-native';
+import { router } from 'expo-router';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export default function Home() {
+  const [products, setProducts]     = useState([]);
+  const [search, setSearch]         = useState('');
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchProducts = async (q = '') => {
+    try {
+      const url = q ? `${API_URL}/products?search=${q}` : `${API_URL}/products`;
+      console.log('Fetching:', url);
+      const res  = await fetch(url);
+      const data = await res.json();
+      console.log('Got products:', data.data?.length);
+      setProducts(data.data || []);
+    } catch (e) {
+      console.log('Fetch error:', e.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => { fetchProducts(); }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchProducts(search);
+  };
+
+const renderProduct = ({ item }) => (
+  <TouchableOpacity
+    style={styles.card}
+    onPress={() => router.push(`/product/${item.id}`)}
+  >
+    {item.image ? (
+      <Image
+        source={{ uri: `http://192.168.1.69:8000/storage/${item.image}` }}
+        style={styles.thumb}
+        resizeMode="cover"
+      />
+    ) : (
+      <View style={[styles.thumb, { backgroundColor: item.hex_code || '#ccc' }]} />
+    )}
+    <View style={styles.info}>
+      <Text style={styles.brand}>{item.brand?.brand_name}</Text>
+      <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>
+      <Text style={styles.size}>{item.size_volume}</Text>
+      <View style={styles.bottom}>
+        <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
+        <View style={[styles.dot, { backgroundColor: item.hex_code || '#ccc' }]} />
+      </View>
+    </View>
+  </TouchableOpacity>
+);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#f97316" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>NCM Paint Center</Text>
+        <Text style={styles.subtitle}>Find your perfect paint</Text>
+      </View>
+
+      <TextInput
+        style={styles.search}
+        placeholder="Search paints..."
+        placeholderTextColor="#999"
+        value={search}
+        onChangeText={(t) => { setSearch(t); fetchProducts(t); }}
+      />
+
+      <FlatList
+        data={products}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderProduct}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f97316" />
+        }
+        ListEmptyComponent={
+          <View style={styles.center}>
+            <Text style={styles.empty}>No products found.</Text>
+          </View>
+        }
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:  { flex: 1, backgroundColor: '#f5f5f5' },
+  center:     { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 },
+  header:     { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 24, paddingHorizontal: 20 },
+  title:      { fontSize: 26, fontWeight: '700', color: '#fff' },
+  subtitle:   { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
+  search:     {
+    margin: 16, backgroundColor: '#fff', borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 13, fontSize: 15,
+    borderWidth: 1, borderColor: '#e8e8e8',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 2,
+  },
+  list:       { paddingHorizontal: 16, paddingBottom: 24 },
+  card:       {
+    backgroundColor: '#fff', borderRadius: 16, marginBottom: 14,
+    flexDirection: 'row', overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  thumb:      { width: 110, height: 110 },
+  info:       { flex: 1, padding: 14, justifyContent: 'space-between' },
+  brand:      { fontSize: 11, color: '#f97316', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  desc:       { fontSize: 14, color: '#1a1a1a', fontWeight: '600', marginTop: 4, lineHeight: 20 },
+  size:       { fontSize: 12, color: '#999', marginTop: 4 },
+  bottom:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  price:      { fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
+  dot:        { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#e0e0e0' },
+  empty:      { color: '#999', fontSize: 15 },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\messages.jsx =====
+
+import { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, FlatList, TextInput, TouchableOpacity,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform
+} from 'react-native';
+import { useAuthStore } from '../../stores/authStore';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export default function Messages() {
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [adminId, setAdminId] = useState(null);
+  const { token, user } = useAuthStore();
+  const flatListRef = useRef(null);
+
+  const getAdmin = async () => {
+    try {
+      const res  = await fetch(`${API_URL}/messages/admin`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setAdminId(data.id);
+      return data.id;
+    } catch (e) {
+      console.log('Admin error:', e.message);
+    }
+  };
+
+  const fetchMessages = async (aId) => {
+    try {
+      const res  = await fetch(`${API_URL}/messages/thread/${aId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setMessages(data);
+    } catch (e) {
+      console.log('Messages error:', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      const aId = await getAdmin();
+      if (aId) fetchMessages(aId);
+    };
+    init();
+
+    const interval = setInterval(() => {
+      if (adminId) fetchMessages(adminId);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [adminId]);
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !adminId) return;
+    const content = newMessage.trim();
+    setNewMessage('');
+    try {
+      await fetch(`${API_URL}/messages/send`, {
+        method:  'POST',
+        headers: {
+          Authorization:  `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ receiver_id: adminId, content }),
+      });
+      fetchMessages(adminId);
+    } catch (e) {
+      console.log('Send error:', e.message);
+    }
+  };
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+  }
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={90}
+    >
+      <View style={styles.header}>
+        <Text style={styles.title}>Messages</Text>
+        <Text style={styles.subtitle}>Chat with NCM Paint Center</Text>
+      </View>
+
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.list}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        renderItem={({ item }) => {
+          const isMe = item.sender_id === user?.id;
+          return (
+            <View style={[styles.bubbleRow, isMe ? styles.myRow : styles.theirRow]}>
+              <View style={[styles.bubble, isMe ? styles.myBubble : styles.theirBubble]}>
+                <Text style={[styles.bubbleText, isMe ? styles.myText : styles.theirText]}>
+                  {item.content}
+                </Text>
+                <Text style={[styles.time, isMe ? styles.myTime : styles.theirTime]}>
+                  {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+            </View>
+          );
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>💬</Text>
+            <Text style={styles.emptyText}>No messages yet. Say hi!</Text>
+          </View>
+        }
+      />
+
+      <View style={styles.inputRow}>
+        <TextInput
+          style={styles.input}
+          placeholder="Type a message..."
+          placeholderTextColor="#999"
+          value={newMessage}
+          onChangeText={setNewMessage}
+          onSubmitEditing={sendMessage}
+          returnKeyType="send"
+          multiline
+        />
+        <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
+          <Text style={styles.sendText}>Send</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:      { flex: 1, backgroundColor: '#f5f5f5' },
+  center:         { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header:         { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
+  title:          { fontSize: 24, fontWeight: '700', color: '#fff' },
+  subtitle:       { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+  list:           { padding: 16, flexGrow: 1 },
+  bubbleRow:      { marginBottom: 8, flexDirection: 'row' },
+  myRow:          { justifyContent: 'flex-end' },
+  theirRow:       { justifyContent: 'flex-start' },
+  bubble:         { maxWidth: '75%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+  myBubble:       { backgroundColor: '#f97316', borderBottomRightRadius: 4 },
+  theirBubble:    { backgroundColor: '#fff', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  bubbleText:     { fontSize: 15, lineHeight: 20 },
+  myText:         { color: '#fff' },
+  theirText:      { color: '#1a1a1a' },
+  time:           { fontSize: 10, marginTop: 4 },
+  myTime:         { color: 'rgba(255,255,255,0.7)', textAlign: 'right' },
+  theirTime:      { color: '#999' },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 },
+  emptyIcon:      { fontSize: 48, marginBottom: 12 },
+  emptyText:      { fontSize: 15, color: '#999' },
+  inputRow:       { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', alignItems: 'flex-end' },
+  input:          { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 100, color: '#1a1a1a' },
+  sendBtn:        { marginLeft: 8, backgroundColor: '#f97316', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  sendText:       { color: '#fff', fontWeight: '700', fontSize: 14 },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\orders.jsx =====
+
+import { useState, useEffect } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity,
+  StyleSheet, ActivityIndicator, Alert
+} from 'react-native';
+import { useAuthStore } from '../../stores/authStore';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+const STATUS_COLORS = {
+  pending:          '#f97316',
+  processing:       '#3b82f6',
+  shipped:          '#8b5cf6',
+  ready_for_pickup: '#8b5cf6',
+  completed:        '#22c55e',
+  cancelled:        '#ef4444',
+};
+
+export default function Orders() {
+  const [orders, setOrders]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { token }             = useAuthStore();
+
+  const fetchOrders = async () => {
+    try {
+      const res  = await fetch(`${API_URL}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setOrders(data);
+    } catch (e) {
+      console.log('Orders error:', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchOrders(); }, []);
+
+  const cancelOrder = async (orderId) => {
+    Alert.alert('Cancel Order', 'Are you sure?', [
+      {
+        text: 'Yes, Cancel',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await fetch(`${API_URL}/orders/${orderId}/cancel`, {
+            method:  'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            Alert.alert('Cancelled', 'Your order has been cancelled.');
+            fetchOrders();
+          }
+        },
+      },
+      { text: 'No', style: 'cancel' },
+    ]);
+  };
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+  }
+
+  if (orders.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.emptyIcon}>📦</Text>
+        <Text style={styles.emptyText}>No orders yet</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>My Orders</Text>
+      </View>
+
+      <FlatList
+        data={orders}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.list}
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.orderId}>Order #{item.id}</Text>
+              <View style={[styles.badge, { backgroundColor: STATUS_COLORS[item.status] || '#999' }]}>
+                <Text style={styles.badgeText}>{item.status.replace('_', ' ')}</Text>
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Type:</Text>
+              <Text style={styles.value}>{item.order_type}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Payment:</Text>
+              <Text style={styles.value}>{item.payment?.payment_method} — {item.payment?.payment_status}</Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Items:</Text>
+              <Text style={styles.value}>{item.order_items?.length} item(s)</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.cardFooter}>
+              <Text style={styles.total}>₱{parseFloat(item.total_amount).toLocaleString()}</Text>
+              {['pending', 'processing'].includes(item.status) && (
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => cancelOrder(item.id)}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: '#f5f5f5' },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header:      { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
+  title:       { fontSize: 24, fontWeight: '700', color: '#fff' },
+  list:        { padding: 16 },
+  card:        { backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, padding: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  cardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  orderId:     { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
+  badge:       { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeText:   { color: '#fff', fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
+  row:         { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  label:       { fontSize: 13, color: '#999' },
+  value:       { fontSize: 13, color: '#1a1a1a', fontWeight: '500', textTransform: 'capitalize' },
+  divider:     { height: 1, backgroundColor: '#f0f0f0', marginVertical: 12 },
+  cardFooter:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  total:       { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
+  cancelBtn:   { backgroundColor: '#fee2e2', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  cancelText:  { color: '#ef4444', fontWeight: '600', fontSize: 13 },
+  emptyIcon:   { fontSize: 64, marginBottom: 16 },
+  emptyText:   { fontSize: 18, color: '#666' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\profile.jsx =====
+
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
+
+export default function Profile() {
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/(auth)/login');
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Profile</Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.name}>{user?.first_name} {user?.last_name}</Text>
+        <Text style={styles.email}>{user?.email}</Text>
+        <Text style={styles.role}>{user?.role}</Text>
+      </View>
+
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Sign Out</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: '#f5f5f5' },
+  header:      { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
+  title:       { fontSize: 24, fontWeight: '700', color: '#fff' },
+  card:        { backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  name:        { fontSize: 22, fontWeight: '700', color: '#1a1a1a', marginBottom: 4 },
+  email:       { fontSize: 15, color: '#666', marginBottom: 4 },
+  role:        { fontSize: 13, color: '#f97316', fontWeight: '600', textTransform: 'capitalize' },
+  logoutBtn:   { margin: 16, backgroundColor: '#ef4444', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  logoutText:  { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\(tabs)\_layout.jsx =====
+
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#f97316',
+        tabBarInactiveTintColor: '#999',
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopColor: '#e0e0e0',
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="home-outline" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: 'Cart',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="cart-outline" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="orders"
+        options={{
+          title: 'Orders',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="receipt-outline" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="chatbubble-outline" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="person-outline" size={22} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
+
+===== C:\laragon\www\paintcenter-mobile\app\ar\estimator.jsx =====
+
+import { useState } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity,
+  TextInput, ScrollView, KeyboardAvoidingView, Platform
+} from 'react-native';
+import { router } from 'expo-router';
+
+export default function WallEstimator() {
+  const [width, setWidth]   = useState('');
+  const [height, setHeight] = useState('');
+  const [doors, setDoors]   = useState('0');
+  const [windows, setWindows] = useState('0');
+  const [coats, setCoats]   = useState('2');
+  const [result, setResult] = useState(null);
+
+  const calculate = () => {
+    const w = parseFloat(width);
+    const h = parseFloat(height);
+    const d = parseInt(doors) || 0;
+    const win = parseInt(windows) || 0;
+    const c = parseInt(coats) || 2;
+
+    if (!w || !h) return;
+
+    const wallArea    = w * h;
+    const doorArea    = d * 2.1;      // standard door 0.9m x 2.1m
+    const windowArea  = win * 1.2;    // standard window 1.0m x 1.2m
+    const paintArea   = (wallArea - doorArea - windowArea) * c;
+    const litersNeeded = paintArea / 10; // 1L covers ~10m²
+    const cansNeeded1L  = Math.ceil(litersNeeded);
+    const cansNeeded4L  = Math.ceil(litersNeeded / 4);
+
+    setResult({
+      wallArea:    wallArea.toFixed(2),
+      paintArea:   paintArea.toFixed(2),
+      liters:      litersNeeded.toFixed(2),
+      cans1L:      cansNeeded1L,
+      cans4L:      cansNeeded4L,
+    });
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Wall Paint Estimator</Text>
+        <Text style={styles.subtitle}>Calculate how much paint you need</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Wall Dimensions</Text>
+
+          <Text style={styles.label}>Wall Width (meters)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 5.5"
+            keyboardType="decimal-pad"
+            value={width}
+            onChangeText={setWidth}
+          />
+
+          <Text style={styles.label}>Wall Height (meters)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 3.0"
+            keyboardType="decimal-pad"
+            value={height}
+            onChangeText={setHeight}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Deductions</Text>
+
+          <Text style={styles.label}>Number of Doors</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="0"
+            keyboardType="number-pad"
+            value={doors}
+            onChangeText={setDoors}
+          />
+
+          <Text style={styles.label}>Number of Windows</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="0"
+            keyboardType="number-pad"
+            value={windows}
+            onChangeText={setWindows}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Coats</Text>
+          <View style={styles.coatsRow}>
+            {['1', '2', '3'].map((c) => (
+              <TouchableOpacity
+                key={c}
+                style={[styles.coatBtn, coats === c && styles.coatBtnActive]}
+                onPress={() => setCoats(c)}
+              >
+                <Text style={[styles.coatText, coats === c && styles.coatTextActive]}>
+                  {c} Coat{c !== '1' ? 's' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.calcBtn} onPress={calculate}>
+          <Text style={styles.calcBtnText}>📐 Calculate</Text>
+        </TouchableOpacity>
+
+        {result && (
+          <View style={styles.resultCard}>
+            <Text style={styles.resultTitle}>Results</Text>
+
+            <View style={styles.resultRow}>
+              <Text style={styles.resultLabel}>Wall Area</Text>
+              <Text style={styles.resultValue}>{result.wallArea} m²</Text>
+            </View>
+            <View style={styles.resultRow}>
+              <Text style={styles.resultLabel}>Paintable Area</Text>
+              <Text style={styles.resultValue}>{result.paintArea} m²</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <Text style={styles.resultHighlight}>You need approximately:</Text>
+            <Text style={styles.liters}>{result.liters} liters</Text>
+
+            <View style={styles.cansRow}>
+              <View style={styles.canCard}>
+                <Text style={styles.canCount}>{result.cans1L}</Text>
+                <Text style={styles.canLabel}>1L cans</Text>
+              </View>
+              <Text style={styles.orText}>or</Text>
+              <View style={styles.canCard}>
+                <Text style={styles.canCount}>{result.cans4L}</Text>
+                <Text style={styles.canLabel}>4L cans</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.shopBtn}
+              onPress={() => router.push('/(tabs)')}
+            >
+              <Text style={styles.shopBtnText}>🛒 Shop Paint Now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:         { flex: 1, backgroundColor: '#f5f5f5' },
+  header:            { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 24, paddingHorizontal: 20 },
+  backBtn:           { marginBottom: 12 },
+  backText:          { color: 'rgba(255,255,255,0.85)', fontSize: 15 },
+  title:             { fontSize: 24, fontWeight: '700', color: '#fff' },
+  subtitle:          { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
+  content:           { padding: 16, paddingBottom: 40 },
+  card:              { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  sectionTitle:      { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 14 },
+  label:             { fontSize: 13, color: '#666', marginBottom: 6 },
+  input:             { backgroundColor: '#f5f5f5', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 14, color: '#1a1a1a' },
+  coatsRow:          { flexDirection: 'row', gap: 10 },
+  coatBtn:           { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: '#f5f5f5' },
+  coatBtnActive:     { backgroundColor: '#f97316' },
+  coatText:          { fontWeight: '600', color: '#666' },
+  coatTextActive:    { color: '#fff' },
+  calcBtn:           { backgroundColor: '#1a1a1a', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 16 },
+  calcBtnText:       { color: '#fff', fontSize: 16, fontWeight: '700' },
+  resultCard:        { backgroundColor: '#fff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  resultTitle:       { fontSize: 18, fontWeight: '700', color: '#1a1a1a', marginBottom: 16 },
+  resultRow:         { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  resultLabel:       { fontSize: 14, color: '#666' },
+  resultValue:       { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
+  divider:           { height: 1, backgroundColor: '#f0f0f0', marginVertical: 14 },
+  resultHighlight:   { fontSize: 14, color: '#666', marginBottom: 6 },
+  liters:            { fontSize: 36, fontWeight: '700', color: '#f97316', marginBottom: 16 },
+  cansRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 20 },
+  canCard:           { backgroundColor: '#fff7ed', borderRadius: 12, padding: 16, alignItems: 'center', flex: 1 },
+  canCount:          { fontSize: 32, fontWeight: '700', color: '#f97316' },
+  canLabel:          { fontSize: 13, color: '#666', marginTop: 4 },
+  orText:            { fontSize: 16, color: '#999', fontWeight: '500' },
+  shopBtn:           { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  shopBtnText:       { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\ar\preview.jsx =====
+
+import { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity,
+  ScrollView, Alert, Dimensions
+} from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useLocalSearchParams, router } from 'expo-router';
+
+const { width, height } = Dimensions.get('window');
+
+const SAMPLE_COLORS = [
+  { name: 'Pure White',    hex: '#FFFFFF' },
+  { name: 'Cream',         hex: '#FFFDD0' },
+  { name: 'Sky Blue',      hex: '#87CEEB' },
+  { name: 'Mint Green',    hex: '#98FF98' },
+  { name: 'Peach',         hex: '#FFCBA4' },
+  { name: 'Lavender',      hex: '#E6E6FA' },
+  { name: 'Beige',         hex: '#F5F5DC' },
+  { name: 'Light Gray',    hex: '#D3D3D3' },
+];
+
+export default function ARPreview() {
+  const { hex }                         = useLocalSearchParams();
+  const [permission, requestPermission] = useCameraPermissions();
+  const [selectedColor, setSelectedColor] = useState(hex || '#FFFFFF');
+  const [opacity, setOpacity]           = useState(0.5);
+  const [showColors, setShowColors]     = useState(false);
+
+  useEffect(() => {
+    if (!permission?.granted) requestPermission();
+  }, []);
+
+  if (!permission?.granted) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.permText}>Camera permission is required for AR preview.</Text>
+        <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+          <Text style={styles.permBtnText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <CameraView style={styles.camera} facing="back">
+        {/* Color overlay on wall */}
+        <View
+          style={[
+            styles.overlay,
+            {
+              backgroundColor: selectedColor,
+              opacity: opacity,
+            }
+          ]}
+        />
+
+        {/* Top bar */}
+        <View style={styles.topBar}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>Paint Preview</Text>
+          <View style={[styles.colorDot, { backgroundColor: selectedColor }]} />
+        </View>
+
+        {/* Opacity slider area */}
+        <View style={styles.opacityContainer}>
+          <Text style={styles.opacityLabel}>Opacity: {Math.round(opacity * 100)}%</Text>
+          <View style={styles.opacityTrack}>
+            {[0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map((val) => (
+              <TouchableOpacity
+                key={val}
+                style={[
+                  styles.opacityStep,
+                  opacity === val && styles.opacityStepActive
+                ]}
+                onPress={() => setOpacity(val)}
+              >
+                <Text style={styles.opacityStepText}>{Math.round(val * 100)}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Bottom controls */}
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={styles.colorPickerBtn}
+            onPress={() => setShowColors(!showColors)}
+          >
+            <Text style={styles.colorPickerText}>🎨 Change Color</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.estimatorBtn}
+            onPress={() => router.push('/ar/estimator')}
+          >
+            <Text style={styles.estimatorText}>📐 Measure Wall</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Color picker panel */}
+        {showColors && (
+          <View style={styles.colorPanel}>
+            <Text style={styles.colorPanelTitle}>Select Paint Color</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {SAMPLE_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color.hex}
+                  style={styles.colorItem}
+                  onPress={() => {
+                    setSelectedColor(color.hex);
+                    setShowColors(false);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.colorCircle,
+                      { backgroundColor: color.hex },
+                      selectedColor === color.hex && styles.colorCircleSelected,
+                    ]}
+                  />
+                  <Text style={styles.colorName}>{color.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </CameraView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:           { flex: 1 },
+  camera:              { flex: 1 },
+  center:              { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  permText:            { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 20 },
+  permBtn:             { backgroundColor: '#f97316', borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14 },
+  permBtnText:         { color: '#fff', fontWeight: '600' },
+  overlay:             { ...StyleSheet.absoluteFillObject },
+  topBar:              { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16 },
+  backBtn:             { backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  backText:            { color: '#fff', fontWeight: '600' },
+  topTitle:            { color: '#fff', fontSize: 18, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  colorDot:            { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: '#fff' },
+  opacityContainer:    { position: 'absolute', top: 130, left: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, padding: 12 },
+  opacityLabel:        { color: '#fff', fontSize: 13, marginBottom: 8, textAlign: 'center' },
+  opacityTrack:        { flexDirection: 'row', justifyContent: 'space-between' },
+  opacityStep:         { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
+  opacityStepActive:   { backgroundColor: '#f97316' },
+  opacityStepText:     { color: '#fff', fontSize: 11, fontWeight: '600' },
+  bottomBar:           { position: 'absolute', bottom: 40, left: 20, right: 20, flexDirection: 'row', gap: 12 },
+  colorPickerBtn:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  colorPickerText:     { color: '#fff', fontWeight: '600', fontSize: 15 },
+  estimatorBtn:        { flex: 1, backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  estimatorText:       { color: '#fff', fontWeight: '600', fontSize: 15 },
+  colorPanel:          { position: 'absolute', bottom: 110, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.85)', padding: 16 },
+  colorPanelTitle:     { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 12 },
+  colorItem:           { alignItems: 'center', marginRight: 16 },
+  colorCircle:         { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', marginBottom: 6 },
+  colorCircleSelected: { borderColor: '#f97316', borderWidth: 3 },
+  colorName:           { color: '#fff', fontSize: 10, textAlign: 'center', maxWidth: 60 },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\product\[id].jsx =====
+  import { useState, useEffect } from 'react';
+import {
+  View, Text, Image, ScrollView, TouchableOpacity,
+  StyleSheet, ActivityIndicator, Alert
+} from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export default function ProductDetail() {
+  const { id } = useLocalSearchParams();
+  const [product, setProduct]     = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [quantity, setQuantity]   = useState(1);
+  const [adding, setAdding]       = useState(false);
+  const [selectedSize, setSelectedSize] = useState(null);
+  const { token } = useAuthStore();
+
+  // Parse size_volume into array of options
+  // Handles both "1L, 4L, 16L" and single "4L"
+  const sizeOptions = product?.size_volume
+    ? product.size_volume.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+
+  const hasSizeChoice = sizeOptions.length > 1;
+
+  useEffect(() => {
+    fetch(`${API_URL}/products/${id}`, {
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(res => res.json())
+      .then(data => {
+        setProduct(data);
+        // Auto-select if only one size
+        const sizes = data.size_volume
+          ? data.size_volume.split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        if (sizes.length === 1) setSelectedSize(sizes[0]);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const handleAddToCart = async () => {
+    if (hasSizeChoice && !selectedSize) {
+      Alert.alert('Select a Size', 'Please choose a size before adding to cart.');
+      return;
+    }
+
+    setAdding(true);
+    try {
+      const res = await fetch(`${API_URL}/cart/add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          product_id:    product.id,
+          quantity,
+          selected_size: selectedSize,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        Alert.alert(
+          'Added to Cart!',
+          `${quantity}x ${product.description}${selectedSize ? ` (${selectedSize})` : ''} added.`,
+          [
+            { text: 'Continue Shopping', style: 'cancel' },
+            { text: 'View Cart', onPress: () => router.push('/(tabs)/cart') },
+          ]
+        );
+      } else {
+        Alert.alert('Error', data.message || 'Failed to add to cart.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+  }
+
+  if (!product) {
+    return <View style={styles.center}><Text>Product not found.</Text></View>;
+  }
+
+  const canAdd = !hasSizeChoice || selectedSize !== null;
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+
+      {/* Product Image or Color Swatch */}
+      {product.image ? (
+        <Image
+          source={{ uri: `${API_URL.replace('/api', '')}/storage/${product.image}` }}
+          style={styles.image}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[styles.image, { backgroundColor: product.hex_code || '#ccc' }]} />
+      )}
+
+      <View style={styles.content}>
+
+        {/* Brand + Color Dot */}
+        <View style={styles.row}>
+          <Text style={styles.brand}>{product.brand?.brand_name}</Text>
+          <View style={[styles.colorDot, { backgroundColor: product.hex_code || '#ccc' }]} />
+        </View>
+
+        {/* Name + Category */}
+        <Text style={styles.desc}>{product.description}</Text>
+        <Text style={styles.category}>{product.category?.category_name}</Text>
+
+        {/* Price + Stock */}
+        <View style={styles.priceRow}>
+          <Text style={styles.price}>₱{parseFloat(product.price).toLocaleString()}</Text>
+          <Text style={[styles.stock, { color: product.stock < 10 ? '#ef4444' : '#22c55e' }]}>
+            {product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}
+          </Text>
+        </View>
+
+        {/* ── SIZE SELECTOR ─────────────────────────────── */}
+        {hasSizeChoice && (
+          <View style={styles.sizeSection}>
+            <View style={styles.sizeLabelRow}>
+              <Text style={styles.sizeLabel}>Select Size</Text>
+              {!selectedSize && (
+                <Text style={styles.sizeRequired}>* Required</Text>
+              )}
+            </View>
+            <View style={styles.sizeChips}>
+              {sizeOptions.map(size => {
+                const active = selectedSize === size;
+                return (
+                  <TouchableOpacity
+                    key={size}
+                    style={[styles.sizeChip, active && styles.sizeChipActive]}
+                    onPress={() => setSelectedSize(size)}
+                  >
+                    <Text style={[styles.sizeChipText, active && styles.sizeChipTextActive]}>
+                      {size}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* Single size display (not selectable) */}
+        {!hasSizeChoice && sizeOptions.length === 1 && (
+          <View style={styles.singleSize}>
+            <Text style={styles.sizeLabelInline}>Size: </Text>
+            <View style={styles.sizeChipActive}>
+              <Text style={styles.sizeChipTextActive}>{sizeOptions[0]}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ── QUANTITY SELECTOR ─────────────────────────── */}
+        <View style={styles.qtySection}>
+          <Text style={styles.sizeLabel}>Quantity</Text>
+          <View style={styles.qtyRow}>
+            <TouchableOpacity
+              style={styles.qtyBtn}
+              onPress={() => setQuantity(q => Math.max(1, q - 1))}
+            >
+              <Text style={styles.qtyBtnText}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.qty}>{quantity}</Text>
+            <TouchableOpacity
+              style={styles.qtyBtn}
+              onPress={() => setQuantity(q => Math.min(product.stock, q + 1))}
+            >
+              <Text style={styles.qtyBtnText}>+</Text>
+            </TouchableOpacity>
+            <Text style={styles.qtyTotal}>
+              = ₱{(parseFloat(product.price) * quantity).toLocaleString()}
+            </Text>
+          </View>
+        </View>
+
+        {/* ── ADD TO CART ───────────────────────────────── */}
+        <TouchableOpacity
+          style={[styles.addBtn, !canAdd && styles.addBtnDisabled]}
+          onPress={handleAddToCart}
+          disabled={adding || !canAdd || product.stock === 0}
+        >
+          {adding ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.addBtnText}>
+              {product.stock === 0
+                ? 'Out of Stock'
+                : hasSizeChoice && !selectedSize
+                  ? 'Select a Size First'
+                  : 'Add to Cart'}
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        {/* AR Preview */}
+        <TouchableOpacity
+          style={styles.arBtn}
+          onPress={() => router.push({ pathname: '/ar/preview', params: { hex: product.hex_code } })}
+        >
+          <Text style={styles.arBtnText}>🎨 Preview on Wall (AR)</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>← Back</Text>
+        </TouchableOpacity>
+
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:          { flex: 1, backgroundColor: '#fff' },
+  center:             { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  image:              { width: '100%', height: 280 },
+  content:            { padding: 20 },
+  row:                { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  brand:              { fontSize: 13, color: '#f97316', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  colorDot:           { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: '#e0e0e0' },
+  desc:               { fontSize: 19, fontWeight: '700', color: '#1a1a1a', marginBottom: 4, lineHeight: 26 },
+  category:           { fontSize: 13, color: '#999', marginBottom: 16 },
+
+  priceRow:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  price:              { fontSize: 28, fontWeight: '700', color: '#1a1a1a' },
+  stock:              { fontSize: 13, fontWeight: '600' },
+
+  // Size selector
+  sizeSection:        { marginBottom: 24 },
+  sizeLabelRow:       { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  sizeLabel:          { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  sizeRequired:       { fontSize: 12, color: '#ef4444', fontWeight: '500' },
+  sizeChips:          { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  sizeChip:           {
+    paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 10, borderWidth: 1.5,
+    borderColor: '#e0e0e0', backgroundColor: '#f9f9f9',
+  },
+  sizeChipActive:     {
+    borderColor: '#f97316', backgroundColor: '#fff7ed',
+  },
+  sizeChipText:       { fontSize: 14, fontWeight: '600', color: '#666' },
+  sizeChipTextActive: { color: '#f97316' },
+
+  singleSize:         { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  sizeLabelInline:    { fontSize: 14, color: '#666' },
+
+  // Quantity
+  qtySection:         { marginBottom: 24 },
+  qtyRow:             { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12 },
+  qtyBtn:             { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
+  qtyBtnText:         { fontSize: 20, color: '#1a1a1a', fontWeight: '500' },
+  qty:                { fontSize: 20, fontWeight: '700', color: '#1a1a1a', minWidth: 30, textAlign: 'center' },
+  qtyTotal:           { fontSize: 15, color: '#666', fontWeight: '500', marginLeft: 4 },
+
+  // Buttons
+  addBtn:             { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
+  addBtnDisabled:     { backgroundColor: '#d1d5db' },
+  addBtnText:         { color: '#fff', fontSize: 17, fontWeight: '700' },
+  arBtn:              { borderWidth: 1.5, borderColor: '#f97316', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
+  arBtnText:          { color: '#f97316', fontSize: 15, fontWeight: '600' },
+  backBtn:            { alignItems: 'center', paddingVertical: 12 },
+  backBtnText:        { color: '#999', fontSize: 14 },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\checkout.jsx =====
+
+import { useState } from 'react';
+import {
+  View, Text, ScrollView, TouchableOpacity,
+  StyleSheet, TextInput, ActivityIndicator, Alert
+} from 'react-native';
+import { router } from 'expo-router';
+import { useAuthStore } from '../stores/authStore';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+const PAYMENT_METHODS = [
+  { id: 'cod',   label: 'Cash on Delivery', icon: '💵' },
+  { id: 'gcash', label: 'GCash',            icon: '📱' },
+  { id: 'card',  label: 'Credit/Debit Card', icon: '💳' },
+  { id: 'cash',  label: 'Cash (Pickup)',     icon: '🏪' },
+];
+
+export default function Checkout() {
+  const { token, user }             = useAuthStore();
+  const [orderType, setOrderType]   = useState('delivery');
+  const [payment, setPayment]       = useState('cod');
+  const [address, setAddress]       = useState(user?.address || '');
+  const [placing, setPlacing]       = useState(false);
+
+  const placeOrder = async () => {
+    if (orderType === 'delivery' && !address.trim()) {
+      Alert.alert('Address Required', 'Please enter your delivery address.');
+      return;
+    }
+
+    setPlacing(true);
+    try {
+      const res = await fetch(`${API_URL}/orders`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Accept':        'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          order_type:       orderType,
+          payment_method:   payment,
+          shipping_address: orderType === 'delivery' ? address : null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        router.replace({
+          pathname: '/order-success',
+          params: { orderId: data.order.id, total: data.order.total_amount },
+        });
+      } else {
+        Alert.alert('Error', data.message || 'Failed to place order.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.back}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Checkout</Text>
+        <View style={{ width: 60 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+
+        {/* Order Type */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Order Type</Text>
+          <View style={styles.optionRow}>
+            <TouchableOpacity
+              style={[styles.optionBtn, orderType === 'delivery' && styles.optionBtnActive]}
+              onPress={() => setOrderType('delivery')}
+            >
+              <Text style={styles.optionIcon}>🚚</Text>
+              <Text style={[styles.optionLabel, orderType === 'delivery' && styles.optionLabelActive]}>
+                Delivery
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.optionBtn, orderType === 'pickup' && styles.optionBtnActive]}
+              onPress={() => setOrderType('pickup')}
+            >
+              <Text style={styles.optionIcon}>🏪</Text>
+              <Text style={[styles.optionLabel, orderType === 'pickup' && styles.optionLabelActive]}>
+                Pick Up
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Delivery Address */}
+        {orderType === 'delivery' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Delivery Address</Text>
+            <TextInput
+              style={styles.addressInput}
+              placeholder="Enter your full address..."
+              placeholderTextColor="#999"
+              value={address}
+              onChangeText={setAddress}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+        )}
+
+        {orderType === 'pickup' && (
+          <View style={styles.section}>
+            <View style={styles.pickupInfo}>
+              <Text style={styles.pickupIcon}>📍</Text>
+              <View>
+                <Text style={styles.pickupTitle}>NCM Paint Center</Text>
+                <Text style={styles.pickupAddr}>Balanga, Bataan</Text>
+                <Text style={styles.pickupHours}>Mon–Sat: 8AM – 6PM</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Payment Method */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Payment Method</Text>
+          {PAYMENT_METHODS.map((method) => (
+            <TouchableOpacity
+              key={method.id}
+              style={[styles.paymentRow, payment === method.id && styles.paymentRowActive]}
+              onPress={() => setPayment(method.id)}
+            >
+              <Text style={styles.paymentIcon}>{method.icon}</Text>
+              <Text style={[styles.paymentLabel, payment === method.id && styles.paymentLabelActive]}>
+                {method.label}
+              </Text>
+              <View style={[styles.radio, payment === method.id && styles.radioActive]}>
+                {payment === method.id && <View style={styles.radioDot} />}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={{ height: 120 }} />
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.placeBtn}
+          onPress={placeOrder}
+          disabled={placing}
+        >
+          {placing
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.placeBtnText}>Place Order</Text>
+          }
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:          { flex: 1, backgroundColor: '#f5f5f5' },
+  header:             { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 16, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  back:               { color: '#fff', fontSize: 15 },
+  title:              { fontSize: 18, fontWeight: '700', color: '#fff' },
+  content:            { padding: 16 },
+  section:            { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  sectionTitle:       { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginBottom: 14 },
+  optionRow:          { flexDirection: 'row', gap: 12 },
+  optionBtn:          { flex: 1, borderRadius: 12, paddingVertical: 16, alignItems: 'center', backgroundColor: '#f5f5f5', borderWidth: 2, borderColor: '#f5f5f5' },
+  optionBtnActive:    { backgroundColor: '#fff7ed', borderColor: '#f97316' },
+  optionIcon:         { fontSize: 28, marginBottom: 6 },
+  optionLabel:        { fontSize: 14, fontWeight: '600', color: '#666' },
+  optionLabelActive:  { color: '#f97316' },
+  addressInput:       { backgroundColor: '#f5f5f5', borderRadius: 12, padding: 14, fontSize: 15, color: '#1a1a1a', minHeight: 80, textAlignVertical: 'top' },
+  pickupInfo:         { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  pickupIcon:         { fontSize: 36 },
+  pickupTitle:        { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  pickupAddr:         { fontSize: 13, color: '#666', marginTop: 2 },
+  pickupHours:        { fontSize: 12, color: '#f97316', marginTop: 2 },
+  paymentRow:         { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, marginBottom: 8, backgroundColor: '#f5f5f5', borderWidth: 2, borderColor: '#f5f5f5' },
+  paymentRowActive:   { backgroundColor: '#fff7ed', borderColor: '#f97316' },
+  paymentIcon:        { fontSize: 24, marginRight: 12 },
+  paymentLabel:       { flex: 1, fontSize: 15, color: '#666', fontWeight: '500' },
+  paymentLabelActive: { color: '#f97316', fontWeight: '700' },
+  radio:              { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#ccc', justifyContent: 'center', alignItems: 'center' },
+  radioActive:        { borderColor: '#f97316' },
+  radioDot:           { width: 10, height: 10, borderRadius: 5, backgroundColor: '#f97316' },
+  footer:             { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, paddingBottom: 34, borderTopWidth: 1, borderTopColor: '#e0e0e0' },
+  placeBtn:           { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  placeBtnText:       { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\index.jsx =====
+
+import { useEffect } from 'react';
+import { router } from 'expo-router';
+import { useAuthStore } from '../stores/authStore';
+import { View, ActivityIndicator } from 'react-native';
+
+export default function Index() {
+  useEffect(() => {
+    const timeout = setTimeout(async () => {
+      await useAuthStore.getState().initialize();
+      const { token } = useAuthStore.getState();
+
+      if (token) {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/(auth)/login');
+      }
+    }, 0);
+
+    return () => clearTimeout(timeout);
+  }, []);
+
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      <ActivityIndicator size="large" color="#f97316" />
+    </View>
+  );
+}
+
+===== C:\laragon\www\paintcenter-mobile\app\order-success.jsx =====
+
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+
+export default function OrderSuccess() {
+  const { orderId, total } = useLocalSearchParams();
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.icon}>🎉</Text>
+      <Text style={styles.title}>Order Placed!</Text>
+      <Text style={styles.subtitle}>Your order has been successfully placed.</Text>
+
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.label}>Order #</Text>
+          <Text style={styles.value}>{orderId}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>Total</Text>
+          <Text style={styles.amount}>₱{parseFloat(total).toLocaleString()}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.info}>
+        We'll notify you when your order status changes. You can track your order in the Orders tab.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.ordersBtn}
+        onPress={() => router.replace('/(tabs)/orders')}
+      >
+        <Text style={styles.ordersBtnText}>View My Orders</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.shopBtn}
+        onPress={() => router.replace('/(tabs)')}
+      >
+        <Text style={styles.shopBtnText}>Continue Shopping</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:    { flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  icon:         { fontSize: 80, marginBottom: 16 },
+  title:        { fontSize: 28, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
+  subtitle:     { fontSize: 15, color: '#666', marginBottom: 24, textAlign: 'center' },
+  card:         { backgroundColor: '#f5f5f5', borderRadius: 16, padding: 20, width: '100%', marginBottom: 20 },
+  row:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  label:        { fontSize: 15, color: '#666' },
+  value:        { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  amount:       { fontSize: 20, fontWeight: '700', color: '#f97316' },
+  info:         { fontSize: 13, color: '#999', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
+  ordersBtn:    { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40, marginBottom: 12, width: '100%', alignItems: 'center' },
+  ordersBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  shopBtn:      { borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40, width: '100%', alignItems: 'center', borderWidth: 2, borderColor: '#f97316' },
+  shopBtnText:  { color: '#f97316', fontSize: 16, fontWeight: '700' },
+});
+
+===== C:\laragon\www\paintcenter-mobile\app\_layout.jsx =====
+
+import { useEffect } from 'react';
+import { Stack } from 'expo-router';
+import { useAuthStore } from '../stores/authStore';
+
+export default function RootLayout() {
+  const initialize = useAuthStore((s) => s.initialize);
+
+  useEffect(() => {
+    initialize();
+  }, []);
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="product/[id]" />
+      <Stack.Screen name="checkout" />
+      <Stack.Screen name="order-success" />
+      <Stack.Screen name="ar/preview" />
+      <Stack.Screen name="ar/estimator" />
+    </Stack>
+  );
+}
+
+===== C:\laragon\www\paintcenter-mobile\constants\api.js =====
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export { API_URL };
+
+===== C:\laragon\www\paintcenter-mobile\stores\authStore.js =====
+
+import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_URL = 'http://192.168.1.69:8000/api';
+
+export const useAuthStore = create((set) => ({
+  user:      null,
+  token:     null,
+  isLoading: false,
+
+  initialize: async () => {
+    const token = await AsyncStorage.getItem('token');
+    const user  = await AsyncStorage.getItem('user');
+    if (token && user) {
+      set({ token, user: JSON.parse(user) });
+    }
+  },
+
+  login: async (email, password) => {
+    set({ isLoading: true });
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'Accept':           'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      const text = await res.text();
+      console.log('Login status:', res.status);
+      const data = JSON.parse(text);
+      if (res.ok) {
+        await AsyncStorage.setItem('token', data.token);
+        await AsyncStorage.setItem('user', JSON.stringify(data.user));
+        set({ user: data.user, token: data.token, isLoading: false });
+        return { success: true };
+      } else {
+        set({ isLoading: false });
+        return { success: false, message: data.message || 'Login failed.' };
+      }
+    } catch (e) {
+      set({ isLoading: false });
+      return { success: false, message: e.message };
+    }
+  },
+
+  register: async (data) => {
+    set({ isLoading: true });
+    try {
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'Accept':           'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(data),
+      });
+      const text = await res.text();
+      console.log('Register status:', res.status);
+      const json = JSON.parse(text);
+      if (res.ok) {
+        await AsyncStorage.setItem('token', json.token);
+        await AsyncStorage.setItem('user', JSON.stringify(json.user));
+        set({ user: json.user, token: json.token, isLoading: false });
+        return { success: true };
+      } else {
+        set({ isLoading: false });
+        return { success: false, message: json.message || 'Registration failed.' };
+      }
+    } catch (e) {
+      set({ isLoading: false });
+      return { success: false, message: e.message };
+    }
+  },
+
+  logout: async () => {
+    const token = useAuthStore.getState().token;
+    await fetch(`${API_URL}/auth/logout`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept':        'application/json',
+      },
+    }).catch(() => {});
+    await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('user');
+    set({ user: null, token: null });
+  },
+}));
+
+===== C:\laragon\www\paintcenter-mobile\stores\cartStore.js =====
+
+import { create } from 'zustand';
+import axios from 'axios';
+import { API_URL } from '../constants/api';
+
+export const useCartStore = create((set) => ({
+  items:      [],
+  itemCount:  0,
+  total:      0,
+  isLoading:  false,
+
+  fetchCart: async () => {
+    try {
+      const res = await axios.get(`${API_URL}/cart`);
+      set({
+        items:     res.data.items,
+        itemCount: res.data.item_count,
+        total:     res.data.total,
+      });
+    } catch (err) {
+      console.error('Cart fetch error:', err);
+    }
+  },
+
+  addToCart: async (productId, quantity = 1) => {
+    set({ isLoading: true });
+    try {
+      const res = await axios.post(`${API_URL}/cart/add`, { product_id: productId, quantity });
+      set({
+        items:     res.data.items,
+        itemCount: res.data.item_count,
+        total:     res.data.total,
+        isLoading: false,
+      });
+      return { success: true };
+    } catch (err) {
+      set({ isLoading: false });
+      return { success: false, message: err.response?.data?.message || 'Failed to add to cart.' };
+    }
+  },
+
+  removeFromCart: async (productId) => {
+    try {
+      const res = await axios.delete(`${API_URL}/cart/${productId}`);
+      set({
+        items:     res.data.items,
+        itemCount: res.data.item_count,
+        total:     res.data.total,
+      });
+    } catch (err) {
+      console.error('Remove from cart error:', err);
+    }
+  },
+
+  clearCart: async () => {
+    await axios.delete(`${API_URL}/cart`);
+    set({ items: [], itemCount: 0, total: 0 });
+  },
+}));
+
+===== C:\laragon\www\paintcenter-mobile\babel.config.js =====
+
+module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ['babel-preset-expo'],
+    plugins: ['react-native-reanimated/plugin'],
+  };
+};

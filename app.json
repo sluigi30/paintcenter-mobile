@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NCM Paint Center",
+    "slug": "paintcenter-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "paintcenter",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ncm.paintcenter"
+    },
+    "android": {
+      "package": "com.ncm.paintcenter"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera"
+    ]
+  }
+}
