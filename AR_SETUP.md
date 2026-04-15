@@ -29,7 +29,7 @@ This means ViroReact's native modules aren't available because it requires a **d
 7. Change colors and opacity as needed
 
 ### Version 2: Full AR with ViroReact (Requires Dev Build)
-**File**: `app/ar/preview-viro.jsx`
+**File**: `app/ar/preview-viro.jsx.bak` (renamed to prevent route conflicts)
 
 ✅ **Real AR** with automatic wall detection
 ✅ **ARKit/ARCore** powered
@@ -42,7 +42,7 @@ This means ViroReact's native modules aren't available because it requires a **d
 3. Build: `npx expo run:ios` (or `android`)
 4. Rename files:
    - `preview.jsx` → `preview-camera.jsx` (backup)
-   - `preview-viro.jsx` → `preview.jsx`
+   - `preview-viro.jsx.bak` → `preview-viro.jsx` → then rename to `preview.jsx`
 5. Restart: `npm start`
 
 ## Configuration Updates
@@ -76,14 +76,14 @@ Already configured in `app.json`:
 
 ```
 app/ar/
-├── preview.jsx           ← ACTIVE: Camera-based (works now)
-├── preview-viro.jsx      ← Full AR version (requires build)
-└── estimator.jsx         ← Wall paint calculator
+├── preview.jsx              ← ACTIVE: Camera-based (works now)
+├── preview-viro.jsx.bak     ← Full AR version (renamed to prevent conflicts)
+└── estimator.jsx            ← Wall paint calculator
 
 Documentation/
-├── AR_FEATURES.md        ← Full AR feature documentation
-├── AR_IMPLEMENTATION.md  ← Implementation guide
-└── AR_SETUP.md           ← This file
+├── AR_FEATURES.md           ← Full AR feature documentation
+├── AR_IMPLEMENTATION.md     ← Implementation guide
+└── AR_SETUP.md              ← This file
 ```
 
 ## Quick Start (Version 1 - Current)
