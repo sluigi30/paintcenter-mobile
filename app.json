@@ -6,16 +6,26 @@
     "orientation": "portrait",
     "scheme": "paintcenter",
     "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ncm.paintcenter"
+      "bundleIdentifier": "com.ncm.paintcenter",
+      "infoPlist": {
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access for AR wall detection and paint preview.",
+        "NSPhotoLibraryUsageDescription": "$(PRODUCT_NAME) needs access to your photos to save paint previews."
+      }
     },
     "android": {
-      "package": "com.ncm.paintcenter"
+      "package": "com.ncm.paintcenter",
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA"
+      ]
     },
     "plugins": [
       "expo-router",
-      "expo-camera"
+      "expo-camera",
+      "@reactvision/react-viro"
     ]
   }
 }
