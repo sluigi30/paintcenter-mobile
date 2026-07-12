@@ -14,16 +14,12 @@ export default function ProductDetail() {
   const [loading, setLoading]     = useState(true);
   const [quantity, setQuantity]   = useState(1);
   const [adding, setAdding]       = useState(false);
-  const [selectedSize, setSelectedSize] = useState(null);
+  const [selectedVariant, setSelectedVariant] = useState(null);
   const { token } = useAuthStore();
 
-  // Parse size_volume into array of options
-  // Handles both "1L, 4L, 16L" and single "4L"
-  const sizeOptions = product?.size_volume
-    ? product.size_volume.split(',').map(s => s.trim()).filter(Boolean)
-    : [];
-
-  const hasSizeChoice = sizeOptions.length > 1;
+  // Each size is a variant with its OWN price and stock
+  const variants = product?.active_variants ?? [];
+  const hasSizeChoice = variants.length > 1;
 
   useEffect(() => {
     fetch(`${API_URL}/products/${id}`, {
@@ -32,18 +28,22 @@ export default function ProductDetail() {
       .then(res => res.json())
       .then(data => {
         setProduct(data);
+        const list = data.active_variants ?? [];
         // Auto-select if only one size
-        const sizes = data.size_volume
-          ? data.size_volume.split(',').map(s => s.trim()).filter(Boolean)
-          : [];
-        if (sizes.length === 1) setSelectedSize(sizes[0]);
+        if (list.length === 1) setSelectedVariant(list[0]);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
 
+  const pickVariant = (variant) => {
+    if (variant.stock === 0) return;
+    setSelectedVariant(variant);
+    setQuantity(q => Math.min(q, variant.stock));
+  };
+
   const handleAddToCart = async () => {
-    if (hasSizeChoice && !selectedSize) {
+    if (!selectedVariant) {
       Alert.alert('Select a Size', 'Please choose a size before adding to cart.');
       return;
     }
@@ -58,9 +58,8 @@ export default function ProductDetail() {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          product_id:    product.id,
+          product_variant_id: selectedVariant.id,
           quantity,
-          selected_size: selectedSize,
         }),
       });
 
@@ -68,7 +67,7 @@ export default function ProductDetail() {
       if (res.ok) {
         Alert.alert(
           'Added to Cart!',
-          `${quantity}x ${product.description}${selectedSize ? ` (${selectedSize})` : ''} added.`,
+          `${quantity}x ${product.description} (${selectedVariant.size_volume}) added.`,
           [
             { text: 'Continue Shopping', style: 'cancel' },
             { text: 'View Cart', onPress: () => router.push('/(tabs)/cart') },
@@ -92,7 +91,15 @@ export default function ProductDetail() {
     return <View style={styles.center}><Text>Product not found.</Text></View>;
   }
 
-  const canAdd = !hasSizeChoice || selectedSize !== null;
+  // Price + stock reflect the chosen size; before choosing, show the range
+  const shownPrice = selectedVariant
+    ? `₱${parseFloat(selectedVariant.price).toLocaleString()}`
+    : variants.length
+      ? `from ₱${Math.min(...variants.map(v => parseFloat(v.price))).toLocaleString()}`
+      : '—';
+
+  const shownStock = selectedVariant ? selectedVariant.stock : product.stock;
+  const canAdd = selectedVariant !== null && selectedVariant.stock > 0;
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -120,51 +127,58 @@ export default function ProductDetail() {
         <Text style={styles.desc}>{product.description}</Text>
         <Text style={styles.category}>{product.category?.category_name}</Text>
 
-        {/* Price + Stock */}
+        {/* Price + Stock (per selected size) */}
         <View style={styles.priceRow}>
-          <Text style={styles.price}>₱{parseFloat(product.price).toLocaleString()}</Text>
-          <Text style={[styles.stock, { color: product.stock < 10 ? '#ef4444' : '#22c55e' }]}>
-            {product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}
+          <Text style={styles.price}>{shownPrice}</Text>
+          <Text style={[styles.stock, { color: shownStock < 10 ? '#ef4444' : '#22c55e' }]}>
+            {shownStock > 0
+              ? `${shownStock} in stock${selectedVariant ? ` (${selectedVariant.size_volume})` : ''}`
+              : 'Out of stock'}
           </Text>
         </View>
 
-        {/* ── SIZE SELECTOR ─────────────────────────────── */}
-        {hasSizeChoice && (
-          <View style={styles.sizeSection}>
-            <View style={styles.sizeLabelRow}>
-              <Text style={styles.sizeLabel}>Select Size</Text>
-              {!selectedSize && (
-                <Text style={styles.sizeRequired}>* Required</Text>
-              )}
-            </View>
-            <View style={styles.sizeChips}>
-              {sizeOptions.map(size => {
-                const active = selectedSize === size;
-                return (
-                  <TouchableOpacity
-                    key={size}
-                    style={[styles.sizeChip, active && styles.sizeChipActive]}
-                    onPress={() => setSelectedSize(size)}
-                  >
-                    <Text style={[styles.sizeChipText, active && styles.sizeChipTextActive]}>
-                      {size}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+        {/* ── SIZE SELECTOR — each size has its own price + stock ── */}
+        <View style={styles.sizeSection}>
+          <View style={styles.sizeLabelRow}>
+            <Text style={styles.sizeLabel}>{hasSizeChoice ? 'Select Size' : 'Size'}</Text>
+            {hasSizeChoice && !selectedVariant && (
+              <Text style={styles.sizeRequired}>* Required</Text>
+            )}
           </View>
-        )}
-
-        {/* Single size display (not selectable) */}
-        {!hasSizeChoice && sizeOptions.length === 1 && (
-          <View style={styles.singleSize}>
-            <Text style={styles.sizeLabelInline}>Size: </Text>
-            <View style={styles.sizeChipActive}>
-              <Text style={styles.sizeChipTextActive}>{sizeOptions[0]}</Text>
-            </View>
+          <View style={styles.sizeChips}>
+            {variants.map(variant => {
+              const active  = selectedVariant?.id === variant.id;
+              const soldOut = variant.stock === 0;
+              return (
+                <TouchableOpacity
+                  key={variant.id}
+                  style={[
+                    styles.sizeChip,
+                    active && styles.sizeChipActive,
+                    soldOut && styles.sizeChipDisabled,
+                  ]}
+                  onPress={() => pickVariant(variant)}
+                  disabled={soldOut}
+                >
+                  <Text style={[
+                    styles.sizeChipText,
+                    active && styles.sizeChipTextActive,
+                    soldOut && styles.sizeChipTextDisabled,
+                  ]}>
+                    {variant.size_volume}
+                  </Text>
+                  <Text style={[
+                    styles.sizeChipPrice,
+                    active && styles.sizeChipTextActive,
+                    soldOut && styles.sizeChipTextDisabled,
+                  ]}>
+                    {soldOut ? 'Sold out' : `₱${parseFloat(variant.price).toLocaleString()}`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
+        </View>
 
         {/* ── QUANTITY SELECTOR ─────────────────────────── */}
         <View style={styles.qtySection}>
@@ -179,13 +193,16 @@ export default function ProductDetail() {
             <Text style={styles.qty}>{quantity}</Text>
             <TouchableOpacity
               style={styles.qtyBtn}
-              onPress={() => setQuantity(q => Math.min(product.stock, q + 1))}
+              onPress={() => setQuantity(q =>
+                Math.min(selectedVariant?.stock ?? 1, q + 1))}
             >
               <Text style={styles.qtyBtnText}>+</Text>
             </TouchableOpacity>
-            <Text style={styles.qtyTotal}>
-              = ₱{(parseFloat(product.price) * quantity).toLocaleString()}
-            </Text>
+            {selectedVariant && (
+              <Text style={styles.qtyTotal}>
+                = ₱{(parseFloat(selectedVariant.price) * quantity).toLocaleString()}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -193,16 +210,16 @@ export default function ProductDetail() {
         <TouchableOpacity
           style={[styles.addBtn, !canAdd && styles.addBtnDisabled]}
           onPress={handleAddToCart}
-          disabled={adding || !canAdd || product.stock === 0}
+          disabled={adding || !canAdd}
         >
           {adding ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.addBtnText}>
-              {product.stock === 0
-                ? 'Out of Stock'
-                : hasSizeChoice && !selectedSize
-                  ? 'Select a Size First'
+              {!selectedVariant
+                ? 'Select a Size First'
+                : selectedVariant.stock === 0
+                  ? 'Out of Stock'
                   : 'Add to Cart'}
             </Text>
           )}
@@ -247,18 +264,21 @@ const styles = StyleSheet.create({
   sizeRequired:       { fontSize: 12, color: '#ef4444', fontWeight: '500' },
   sizeChips:          { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   sizeChip:           {
-    paddingHorizontal: 20, paddingVertical: 10,
+    paddingHorizontal: 18, paddingVertical: 10,
     borderRadius: 10, borderWidth: 1.5,
     borderColor: '#e0e0e0', backgroundColor: '#f9f9f9',
+    alignItems: 'center', minWidth: 76,
   },
   sizeChipActive:     {
     borderColor: '#f97316', backgroundColor: '#fff7ed',
   },
-  sizeChipText:       { fontSize: 14, fontWeight: '600', color: '#666' },
+  sizeChipDisabled:   {
+    borderColor: '#eee', backgroundColor: '#f5f5f5', opacity: 0.6,
+  },
+  sizeChipText:       { fontSize: 14, fontWeight: '700', color: '#666' },
   sizeChipTextActive: { color: '#f97316' },
-
-  singleSize:         { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  sizeLabelInline:    { fontSize: 14, color: '#666' },
+  sizeChipTextDisabled: { color: '#bbb' },
+  sizeChipPrice:      { fontSize: 11, fontWeight: '600', color: '#999', marginTop: 2 },
 
   // Quantity
   qtySection:         { marginBottom: 24 },

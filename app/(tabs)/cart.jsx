@@ -36,12 +36,15 @@ export default function Cart() {
     fetchCart();
   }, []));
 
-  const updateQty = async (productId, quantity) => {
+  // Cart lines are keyed by cart_item_id — the same paint can be in the
+  // cart in several sizes, each as its own line
+  const updateQty = async (cartItemId, quantity, maxStock) => {
     if (quantity < 1) {
-      removeItem(productId);
+      removeItem(cartItemId);
       return;
     }
-    await fetch(`${API_URL}/cart/${productId}`, {
+    if (maxStock !== undefined && quantity > maxStock) return;
+    await fetch(`${API_URL}/cart/${cartItemId}`, {
       method:  'PUT',
       headers: {
         'Content-Type':  'application/json',
@@ -53,13 +56,13 @@ export default function Cart() {
     fetchCart();
   };
 
-  const removeItem = async (productId) => {
+  const removeItem = async (cartItemId) => {
     Alert.alert('Remove Item', 'Remove this item from cart?', [
       {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
-          await fetch(`${API_URL}/cart/${productId}`, {
+          await fetch(`${API_URL}/cart/${cartItemId}`, {
             method:  'DELETE',
             headers: {
               'Accept':        'application/json',
@@ -99,7 +102,7 @@ export default function Cart() {
 
       <FlatList
         data={items}
-        keyExtractor={(item) => item.product_id.toString()}
+        keyExtractor={(item) => item.cart_item_id.toString()}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -115,19 +118,26 @@ export default function Cart() {
 
             <View style={styles.info}>
               <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
+              <View style={styles.metaRow}>
+                {item.size_volume ? (
+                  <View style={styles.sizeBadge}>
+                    <Text style={styles.sizeBadgeText}>{item.size_volume}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
+              </View>
 
               <View style={styles.qtyRow}>
                 <TouchableOpacity
                   style={styles.qtyBtn}
-                  onPress={() => updateQty(item.product_id, item.quantity - 1)}
+                  onPress={() => updateQty(item.cart_item_id, item.quantity - 1)}
                 >
                   <Text style={styles.qtyBtnText}>−</Text>
                 </TouchableOpacity>
                 <Text style={styles.qty}>{item.quantity}</Text>
                 <TouchableOpacity
                   style={styles.qtyBtn}
-                  onPress={() => updateQty(item.product_id, item.quantity + 1)}
+                  onPress={() => updateQty(item.cart_item_id, item.quantity + 1, item.available_stock)}
                 >
                   <Text style={styles.qtyBtnText}>+</Text>
                 </TouchableOpacity>
@@ -139,7 +149,7 @@ export default function Cart() {
 
             <TouchableOpacity
               style={styles.removeBtn}
-              onPress={() => removeItem(item.product_id)}
+              onPress={() => removeItem(item.cart_item_id)}
             >
               <Text style={styles.removeText}>🗑</Text>
             </TouchableOpacity>
@@ -180,7 +190,10 @@ const styles = StyleSheet.create({
   thumb:          { width: 80, height: 80, borderRadius: 10, overflow: 'hidden' },
   info:           { flex: 1, marginLeft: 12 },
   name:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a', marginBottom: 4 },
-  price:          { fontSize: 15, fontWeight: '700', color: '#f97316', marginBottom: 8 },
+  metaRow:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  sizeBadge:      { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#f97316', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  sizeBadgeText:  { fontSize: 11, fontWeight: '700', color: '#f97316' },
+  price:          { fontSize: 15, fontWeight: '700', color: '#f97316' },
   qtyRow:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
   qtyBtn:         { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
   qtyBtnText:     { fontSize: 16, color: '#1a1a1a', fontWeight: '700' },
