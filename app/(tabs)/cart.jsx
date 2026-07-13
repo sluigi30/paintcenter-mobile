@@ -77,7 +77,7 @@ export default function Cart() {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color="#b91c1c" /></View>;
   }
 
   if (items.length === 0) {
@@ -180,9 +180,9 @@ const styles = StyleSheet.create({
   emptyIcon:      { fontSize: 72, marginBottom: 16 },
   emptyTitle:     { fontSize: 22, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
   emptySubtitle:  { fontSize: 15, color: '#999', marginBottom: 24, textAlign: 'center' },
-  shopBtn:        { backgroundColor: '#f97316', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
+  shopBtn:        { backgroundColor: '#b91c1c', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
   shopBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
-  header:         { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  header:         { backgroundColor: '#b91c1c', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
   title:          { fontSize: 24, fontWeight: '700', color: '#fff' },
   count:          { fontSize: 14, color: 'rgba(255,255,255,0.85)' },
   list:           { padding: 16, paddingBottom: 200 },
@@ -191,9 +191,9 @@ const styles = StyleSheet.create({
   info:           { flex: 1, marginLeft: 12 },
   name:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a', marginBottom: 4 },
   metaRow:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  sizeBadge:      { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#f97316', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
-  sizeBadgeText:  { fontSize: 11, fontWeight: '700', color: '#f97316' },
-  price:          { fontSize: 15, fontWeight: '700', color: '#f97316' },
+  sizeBadge:      { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#b91c1c', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  sizeBadgeText:  { fontSize: 11, fontWeight: '700', color: '#b91c1c' },
+  price:          { fontSize: 15, fontWeight: '700', color: '#b91c1c' },
   qtyRow:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
   qtyBtn:         { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
   qtyBtnText:     { fontSize: 16, color: '#1a1a1a', fontWeight: '700' },
@@ -205,6 +205,6 @@ const styles = StyleSheet.create({
   totalRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   totalLabel:     { fontSize: 15, color: '#666' },
   totalAmount:    { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
-  checkoutBtn:    { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  checkoutBtn:    { backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   checkoutBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

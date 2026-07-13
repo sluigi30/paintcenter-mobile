@@ -75,7 +75,7 @@ export default function Messages() {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color="#b91c1c" /></View>;
   }
 
   return (
@@ -140,7 +140,7 @@ export default function Messages() {
 const styles = StyleSheet.create({
   container:      { flex: 1, backgroundColor: '#f5f5f5' },
   center:         { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header:         { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
+  header:         { backgroundColor: '#b91c1c', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
   title:          { fontSize: 24, fontWeight: '700', color: '#fff' },
   subtitle:       { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
   list:           { padding: 16, flexGrow: 1 },
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   myRow:          { justifyContent: 'flex-end' },
   theirRow:       { justifyContent: 'flex-start' },
   bubble:         { maxWidth: '75%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
-  myBubble:       { backgroundColor: '#f97316', borderBottomRightRadius: 4 },
+  myBubble:       { backgroundColor: '#b91c1c', borderBottomRightRadius: 4 },
   theirBubble:    { backgroundColor: '#fff', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   bubbleText:     { fontSize: 15, lineHeight: 20 },
   myText:         { color: '#fff' },
@@ -161,6 +161,6 @@ const styles = StyleSheet.create({
   emptyText:      { fontSize: 15, color: '#999' },
   inputRow:       { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', alignItems: 'flex-end' },
   input:          { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 100, color: '#1a1a1a' },
-  sendBtn:        { marginLeft: 8, backgroundColor: '#f97316', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  sendBtn:        { marginLeft: 8, backgroundColor: '#b91c1c', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
   sendText:       { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

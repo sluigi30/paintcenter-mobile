@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, Image, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert
+  StyleSheet, ActivityIndicator, Alert, FlatList, Dimensions
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
 
 const API_URL = 'http://192.168.1.69:8000/api';
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams();
@@ -15,7 +16,10 @@ export default function ProductDetail() {
   const [quantity, setQuantity]   = useState(1);
   const [adding, setAdding]       = useState(false);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const [activeImage, setActiveImage] = useState(0);
   const { token } = useAuthStore();
+
+  const gallery = product?.images ?? [];
 
   // Each size is a variant with its OWN price and stock
   const variants = product?.active_variants ?? [];
@@ -84,7 +88,7 @@ export default function ProductDetail() {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color="#b91c1c" /></View>;
   }
 
   if (!product) {
@@ -104,13 +108,38 @@ export default function ProductDetail() {
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-      {/* Product Image or Color Swatch */}
-      {product.image ? (
-        <Image
-          source={{ uri: `${API_URL.replace('/api', '')}/storage/${product.image}` }}
-          style={styles.image}
-          resizeMode="cover"
-        />
+      {/* Product Image Gallery — swipeable, first image is the cover */}
+      {gallery.length > 0 ? (
+        <View>
+          <FlatList
+            data={gallery}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(img, i) => `${i}-${img}`}
+            onMomentumScrollEnd={(e) =>
+              setActiveImage(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))}
+            renderItem={({ item: img }) => (
+              <Image
+                source={{ uri: `${API_URL.replace('/api', '')}/storage/${img}` }}
+                style={styles.image}
+                resizeMode="cover"
+              />
+            )}
+          />
+          {gallery.length > 1 && (
+            <>
+              <View style={styles.dots}>
+                {gallery.map((_, i) => (
+                  <View key={i} style={[styles.dot, i === activeImage && styles.dotActive]} />
+                ))}
+              </View>
+              <View style={styles.imageCounter}>
+                <Text style={styles.imageCounterText}>{activeImage + 1}/{gallery.length}</Text>
+              </View>
+            </>
+          )}
+        </View>
       ) : (
         <View style={[styles.image, { backgroundColor: product.hex_code || '#ccc' }]} />
       )}
@@ -123,9 +152,14 @@ export default function ProductDetail() {
           <View style={[styles.colorDot, { backgroundColor: product.hex_code || '#ccc' }]} />
         </View>
 
-        {/* Name + Category */}
-        <Text style={styles.desc}>{product.description}</Text>
-        <Text style={styles.category}>{product.category?.category_name}</Text>
+        {/* Name (with color name, like a normal e-commerce title) + meta line */}
+        <Text style={styles.desc}>
+          {product.description}{product.color_name ? ` — ${product.color_name}` : ''}
+        </Text>
+        <Text style={styles.category}>
+          {product.category?.category_name}
+          {product.color_code ? `  ·  Color Code: ${product.color_code}` : ''}
+        </Text>
 
         {/* Price + Stock (per selected size) */}
         <View style={styles.priceRow}>
@@ -245,10 +279,17 @@ export default function ProductDetail() {
 const styles = StyleSheet.create({
   container:          { flex: 1, backgroundColor: '#fff' },
   center:             { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  image:              { width: '100%', height: 280 },
+  image:              { width: SCREEN_WIDTH, height: 280 },
+
+  // Gallery dots + counter
+  dots:               { position: 'absolute', bottom: 12, alignSelf: 'center', flexDirection: 'row', gap: 6 },
+  dot:                { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.55)' },
+  dotActive:          { backgroundColor: '#fff', width: 18 },
+  imageCounter:       { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
+  imageCounterText:   { color: '#fff', fontSize: 12, fontWeight: '600' },
   content:            { padding: 20 },
   row:                { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  brand:              { fontSize: 13, color: '#f97316', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  brand:              { fontSize: 13, color: '#b91c1c', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   colorDot:           { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: '#e0e0e0' },
   desc:               { fontSize: 19, fontWeight: '700', color: '#1a1a1a', marginBottom: 4, lineHeight: 26 },
   category:           { fontSize: 13, color: '#999', marginBottom: 16 },
@@ -270,13 +311,13 @@ const styles = StyleSheet.create({
     alignItems: 'center', minWidth: 76,
   },
   sizeChipActive:     {
-    borderColor: '#f97316', backgroundColor: '#fff7ed',
+    borderColor: '#b91c1c', backgroundColor: '#fef2f2',
   },
   sizeChipDisabled:   {
     borderColor: '#eee', backgroundColor: '#f5f5f5', opacity: 0.6,
   },
   sizeChipText:       { fontSize: 14, fontWeight: '700', color: '#666' },
-  sizeChipTextActive: { color: '#f97316' },
+  sizeChipTextActive: { color: '#b91c1c' },
   sizeChipTextDisabled: { color: '#bbb' },
   sizeChipPrice:      { fontSize: 11, fontWeight: '600', color: '#999', marginTop: 2 },
 
@@ -289,11 +330,11 @@ const styles = StyleSheet.create({
   qtyTotal:           { fontSize: 15, color: '#666', fontWeight: '500', marginLeft: 4 },
 
   // Buttons
-  addBtn:             { backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
+  addBtn:             { backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
   addBtnDisabled:     { backgroundColor: '#d1d5db' },
   addBtnText:         { color: '#fff', fontSize: 17, fontWeight: '700' },
-  arBtn:              { borderWidth: 1.5, borderColor: '#f97316', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
-  arBtnText:          { color: '#f97316', fontSize: 15, fontWeight: '600' },
+  arBtn:              { borderWidth: 1.5, borderColor: '#b91c1c', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
+  arBtnText:          { color: '#b91c1c', fontSize: 15, fontWeight: '600' },
   backBtn:            { alignItems: 'center', paddingVertical: 12 },
   backBtnText:        { color: '#999', fontSize: 14 },
 });

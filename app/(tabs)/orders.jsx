@@ -8,7 +8,7 @@ import { useAuthStore } from '../../stores/authStore';
 const API_URL = 'http://192.168.1.69:8000/api';
 
 const STATUS_COLORS = {
-  pending:          '#f97316',
+  pending:          '#b91c1c',
   processing:       '#3b82f6',
   shipped:          '#8b5cf6',
   ready_for_pickup: '#8b5cf6',
@@ -58,7 +58,7 @@ export default function Orders() {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#f97316" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color="#b91c1c" /></View>;
   }
 
   if (orders.length === 0) {
@@ -127,7 +127,7 @@ export default function Orders() {
 const styles = StyleSheet.create({
   container:   { flex: 1, backgroundColor: '#f5f5f5' },
   center:      { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header:      { backgroundColor: '#f97316', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
+  header:      { backgroundColor: '#b91c1c', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
   title:       { fontSize: 24, fontWeight: '700', color: '#fff' },
   list:        { padding: 16 },
   card:        { backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, padding: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },

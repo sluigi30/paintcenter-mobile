@@ -94,10 +94,10 @@ const styles = StyleSheet.create({
     marginBottom: 14, backgroundColor: '#fafafa', color: '#1a1a1a',
   },
   button:     {
-    backgroundColor: '#f97316', borderRadius: 12,
+    backgroundColor: '#b91c1c', borderRadius: 12,
     paddingVertical: 16, alignItems: 'center', marginTop: 8, marginBottom: 20,
   },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   link:       { textAlign: 'center', color: '#666', fontSize: 14 },
-  linkBold:   { color: '#f97316', fontWeight: '600' },
+  linkBold:   { color: '#b91c1c', fontWeight: '600' },
 });

@@ -290,12 +290,12 @@ const styles = StyleSheet.create({
   camera:              { flex: 1 },
   center:              { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   permText:            { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 20 },
-  permBtn:             { backgroundColor: '#f97316', borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14 },
+  permBtn:             { backgroundColor: '#b91c1c', borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14 },
   permBtnText:         { color: '#fff', fontWeight: '600' },
   
   // Wall regions
   wallRegion:          { position: 'absolute', borderWidth: 1, borderColor: 'rgba(0,0,0,0.2)' },
-  currentRegion:       { borderColor: '#f97316', borderWidth: 2, borderStyle: 'dashed' },
+  currentRegion:       { borderColor: '#b91c1c', borderWidth: 2, borderStyle: 'dashed' },
 
   // Top bar
   topBar:              { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16 },
@@ -313,12 +313,12 @@ const styles = StyleSheet.create({
   opacityLabel:        { color: '#fff', fontSize: 13, marginBottom: 8, textAlign: 'center' },
   opacityTrack:        { flexDirection: 'row', justifyContent: 'space-between' },
   opacityStep:         { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
-  opacityStepActive:   { backgroundColor: '#f97316' },
+  opacityStepActive:   { backgroundColor: '#b91c1c' },
   opacityStepText:     { color: '#fff', fontSize: 11, fontWeight: '600' },
 
   // Bottom bar
   bottomBar:           { position: 'absolute', bottom: 100, left: 20, right: 20, flexDirection: 'row', gap: 12 },
-  addRegionBtn:        { flex: 1, backgroundColor: '#f97316', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  addRegionBtn:        { flex: 1, backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   addRegionBtnActive:  { backgroundColor: '#ef4444' },
   addRegionBtnText:    { color: '#fff', fontWeight: '600', fontSize: 15 },
   colorPickerBtn:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
@@ -336,6 +336,6 @@ const styles = StyleSheet.create({
   colorPanelTitle:     { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 12 },
   colorItem:           { alignItems: 'center', marginRight: 16 },
   colorCircle:         { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', marginBottom: 6 },
-  colorCircleSelected: { borderColor: '#f97316', borderWidth: 3 },
+  colorCircleSelected: { borderColor: '#b91c1c', borderWidth: 3 },
   colorName:           { color: '#fff', fontSize: 10, textAlign: 'center', maxWidth: 60 },
 });
