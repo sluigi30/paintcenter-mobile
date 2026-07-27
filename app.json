@@ -25,7 +25,28 @@
     "plugins": [
       "expo-router",
       "expo-camera",
-      "@reactvision/react-viro"
+      "@reactvision/react-viro",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "NCM Paint Center needs camera access for the live paint filter.",
+          "enableFrameProcessors": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "react-native-fast-tflite",
+        {
+          "enableAndroidGpuLibraries": true
+        }
+      ]
     ]
   }
 }

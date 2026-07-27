@@ -18,6 +18,7 @@ export default function RootLayout() {
       <Stack.Screen name="order-success" />
       <Stack.Screen name="ar/preview" />
       <Stack.Screen name="ar/estimator" />
+      <Stack.Screen name="ar/live-filter" />
     </Stack>
   );
 }

@@ -44,5 +44,3 @@ ios/
 # Expo web cache
 .cache/
 
-# Misc
-*.log

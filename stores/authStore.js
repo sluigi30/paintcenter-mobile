@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_URL = 'http://192.168.1.69:8000/api';
+import { API_URL } from '../constants/api';
 
 export const useAuthStore = create((set) => ({
   user:      null,

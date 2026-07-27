@@ -6,7 +6,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
 
-const API_URL = 'http://192.168.1.69:8000/api';
+import { API_URL } from '../../constants/api';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ProductDetail() {
@@ -259,7 +259,7 @@ export default function ProductDetail() {
           )}
         </TouchableOpacity>
 
-        {/* AR Preview */}
+        {/* Real ARCore AR preview (ViroReact) */}
         <TouchableOpacity
           style={styles.arBtn}
           onPress={() => router.push({ pathname: '/ar/preview', params: { hex: product.hex_code } })}

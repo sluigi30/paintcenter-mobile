@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-const API_URL = 'http://192.168.1.69:8000/api';
+import { API_URL } from '../../constants/api';
 const PER_PAGE = 15;
 
 export default function BrandProducts() {

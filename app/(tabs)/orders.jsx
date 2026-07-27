@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useAuthStore } from '../../stores/authStore';
 
-const API_URL = 'http://192.168.1.69:8000/api';
+import { API_URL } from '../../constants/api';
 
 const STATUS_COLORS = {
   pending:          '#b91c1c',

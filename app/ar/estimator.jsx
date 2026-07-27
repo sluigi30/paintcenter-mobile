@@ -3,11 +3,14 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, KeyboardAvoidingView, Platform
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 export default function WallEstimator() {
-  const [width, setWidth]   = useState('');
-  const [height, setHeight] = useState('');
+  // The AR screen passes ARCore's measured plane extents through, so a user
+  // who came from a painted wall doesn't retype what the phone already knows.
+  const params = useLocalSearchParams();
+  const [width, setWidth]   = useState(params.width ? String(params.width) : '');
+  const [height, setHeight] = useState(params.height ? String(params.height) : '');
   const [doors, setDoors]   = useState('0');
   const [windows, setWindows] = useState('0');
   const [coats, setCoats]   = useState('2');
@@ -55,6 +58,9 @@ export default function WallEstimator() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Wall Dimensions</Text>
+          {params.width ? (
+            <Text style={styles.arHint}>📐 Measured in AR — edit if needed</Text>
+          ) : null}
 
           <Text style={styles.label}>Wall Width (meters)</Text>
           <TextInput
@@ -171,6 +177,7 @@ const styles = StyleSheet.create({
   content:           { padding: 16, paddingBottom: 40 },
   card:              { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   sectionTitle:      { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 14 },
+  arHint:            { fontSize: 12, color: '#f97316', fontWeight: '600', marginTop: -8, marginBottom: 12 },
   label:             { fontSize: 13, color: '#666', marginBottom: 6 },
   input:             { backgroundColor: '#f5f5f5', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 14, color: '#1a1a1a' },
   coatsRow:          { flexDirection: 'row', gap: 10 },

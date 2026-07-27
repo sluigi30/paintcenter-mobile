@@ -6,7 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
 
-const API_URL = 'http://192.168.1.69:8000/api';
+import { API_URL } from '../../constants/api';
 
 export default function Cart() {
   const [items, setItems]     = useState([]);
