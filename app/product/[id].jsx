@@ -259,12 +259,22 @@ export default function ProductDetail() {
           )}
         </TouchableOpacity>
 
-        {/* Real ARCore AR preview (ViroReact) */}
+        {/* Paint preview — CV wall segmentation. Excludes furniture, windows and
+            wall art per-pixel, and needs no ARCore, so it runs on any camera phone. */}
         <TouchableOpacity
           style={styles.arBtn}
+          onPress={() => router.push({ pathname: '/ar/live-filter', params: { hex: product.hex_code } })}
+        >
+          <Text style={styles.arBtnText}>🎨 Preview on Wall</Text>
+        </TouchableOpacity>
+
+        {/* Wall measurement — ARCore plane tracking for metric scale, so it can
+            work out how much paint is needed. Requires an ARCore-certified device. */}
+        <TouchableOpacity
+          style={styles.arBtnAlt}
           onPress={() => router.push({ pathname: '/ar/preview', params: { hex: product.hex_code } })}
         >
-          <Text style={styles.arBtnText}>🎨 Preview on Wall (AR)</Text>
+          <Text style={styles.arBtnAltText}>📐 Measure Wall &amp; Estimate Paint (AR)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -335,6 +345,8 @@ const styles = StyleSheet.create({
   addBtnText:         { color: '#fff', fontSize: 17, fontWeight: '700' },
   arBtn:              { borderWidth: 1.5, borderColor: '#b91c1c', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
   arBtnText:          { color: '#b91c1c', fontSize: 15, fontWeight: '600' },
+  arBtnAlt:           { borderWidth: 1, borderColor: '#9ca3af', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 12 },
+  arBtnAltText:       { color: '#4b5563', fontSize: 14, fontWeight: '600' },
   backBtn:            { alignItems: 'center', paddingVertical: 12 },
   backBtnText:        { color: '#999', fontSize: 14 },
 });
