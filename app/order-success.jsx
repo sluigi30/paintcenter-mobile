@@ -1,8 +1,13 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { formatOrderDate } from '../constants/orders';
+
 export default function OrderSuccess() {
-  const { orderId, total } = useLocalSearchParams();
+  // No order id is shown. Ids are a shared auto-increment across all customers,
+  // so "#147" on a first order reads as 146 missing ones — the placed-at
+  // timestamp is how the customer identifies the order everywhere else too.
+  const { orderId, total, placedAt } = useLocalSearchParams();
 
   return (
     <View style={styles.container}>
@@ -12,8 +17,8 @@ export default function OrderSuccess() {
 
       <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={styles.label}>Order #</Text>
-          <Text style={styles.value}>{orderId}</Text>
+          <Text style={styles.label}>Placed</Text>
+          <Text style={styles.value}>{formatOrderDate(placedAt)}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Total</Text>
@@ -27,9 +32,9 @@ export default function OrderSuccess() {
 
       <TouchableOpacity
         style={styles.ordersBtn}
-        onPress={() => router.replace('/(tabs)/orders')}
+        onPress={() => router.replace(orderId ? `/order/${orderId}` : '/(tabs)/orders')}
       >
-        <Text style={styles.ordersBtnText}>View My Orders</Text>
+        <Text style={styles.ordersBtnText}>View Order Details</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -48,9 +53,9 @@ const styles = StyleSheet.create({
   title:        { fontSize: 28, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
   subtitle:     { fontSize: 15, color: '#666', marginBottom: 24, textAlign: 'center' },
   card:         { backgroundColor: '#f5f5f5', borderRadius: 16, padding: 20, width: '100%', marginBottom: 20 },
-  row:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   label:        { fontSize: 15, color: '#666' },
-  value:        { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  value:        { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
   amount:       { fontSize: 20, fontWeight: '700', color: '#b91c1c' },
   info:         { fontSize: 13, color: '#999', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
   ordersBtn:    { backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40, marginBottom: 12, width: '100%', alignItems: 'center' },

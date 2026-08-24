@@ -7,6 +7,20 @@ import { useAuthStore } from '../../stores/authStore';
 
 import { API_URL } from '../../constants/api';
 
+// Bubbles carry the date as well as the time — order updates land here and get
+// referred to by when they were placed, so "Aug 13" has to be readable in the
+// thread itself. Matches the admin panel's stamp format.
+const formatStamp = (value) => {
+  const d = new Date(value);
+  if (isNaN(d)) return '';
+  return d.toLocaleString([], {
+    month:  'short',
+    day:    'numeric',
+    hour:   '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export default function Messages() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -104,7 +118,7 @@ export default function Messages() {
                   {item.content}
                 </Text>
                 <Text style={[styles.time, isMe ? styles.myTime : styles.theirTime]}>
-                  {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatStamp(item.created_at)}
                 </Text>
               </View>
             </View>
@@ -153,7 +167,7 @@ const styles = StyleSheet.create({
   bubbleText:     { fontSize: 15, lineHeight: 20 },
   myText:         { color: '#fff' },
   theirText:      { color: '#1a1a1a' },
-  time:           { fontSize: 10, marginTop: 4 },
+  time:           { fontSize: 10, marginTop: 4, textAlign: 'right' },
   myTime:         { color: 'rgba(255,255,255,0.7)', textAlign: 'right' },
   theirTime:      { color: '#999' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 },

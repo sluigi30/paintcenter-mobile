@@ -56,6 +56,8 @@ import {
   isARSupportedOnDevice,
 } from '@reactvision/react-viro';
 
+import { useMeasureStore } from '../../stores/measureStore';
+
 const { width, height } = Dimensions.get('window');
 
 const PAINT_COLORS = [
@@ -425,7 +427,7 @@ function ARWallScene(props) {
 }
 
 export default function ARPreviewViro() {
-  const { hex } = useLocalSearchParams();
+  const { hex, from } = useLocalSearchParams();
   const [permission, requestPermission] = useCameraPermissions();
 
   // 'checking' -> 'supported' | 'unsupported'
@@ -613,8 +615,20 @@ export default function ARPreviewViro() {
   }, []);
 
   const goToEstimator = useCallback(() => {
-    // Hand the measured extents to the estimator so the user doesn't retype
+    // Hand the measured extents to the calculator so the user doesn't retype
     // dimensions the phone already knows.
+    //
+    // Coming FROM the calculator, the measurement belongs to a wall row that is
+    // already on screen behind us: post it to the store and pop, or the user
+    // ends up on a second, empty calculator with their other walls stranded on
+    // the one underneath. Arriving here cold, there is no calculator to go back
+    // to, so push a new one with the numbers as params.
+    if (from === 'estimator') {
+      if (wall) useMeasureStore.getState().report(wall.width, wall.height);
+      router.back();
+      return;
+    }
+
     router.push({
       pathname: '/ar/estimator',
       params: wall
@@ -625,7 +639,7 @@ export default function ARPreviewViro() {
           }
         : { hex: selectedColor },
     });
-  }, [wall, selectedColor]);
+  }, [wall, selectedColor, from]);
 
   // ---- Gate 1: AR capability -------------------------------------------------
   if (arSupport.state === 'checking') {
@@ -850,7 +864,9 @@ export default function ARPreviewViro() {
 
         <TouchableOpacity style={styles.estimatorBtn} onPress={goToEstimator}>
           <Text style={styles.estimatorText}>
-            {wall ? '📐 How much paint?' : '📐 Measure Wall'}
+            {from === 'estimator'
+              ? (wall ? '✅ Use This Measurement' : '📐 Measure Wall')
+              : (wall ? '📐 How much paint?' : '📐 Measure Wall')}
           </Text>
         </TouchableOpacity>
       </View>

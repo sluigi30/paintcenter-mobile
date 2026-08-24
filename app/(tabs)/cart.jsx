@@ -5,14 +5,21 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
+import { useCartSelection } from '../../stores/cartSelectionStore';
 
 import { API_URL } from '../../constants/api';
 
 export default function Cart() {
   const [items, setItems]     = useState([]);
-  const [total, setTotal]     = useState(0);
   const [loading, setLoading] = useState(true);
   const { token }             = useAuthStore();
+  // Selection lives in a store, not local state — this screen remounts on every
+  // "View Cart" from a product page, which would otherwise reset the ticks
+  const deselected  = useCartSelection((s) => s.deselected);
+  const toggleItem  = useCartSelection((s) => s.toggle);
+  const selectAll   = useCartSelection((s) => s.selectAll);
+  const deselectAll = useCartSelection((s) => s.deselectAll);
+  const prune       = useCartSelection((s) => s.prune);
 
   const fetchCart = async () => {
     try {
@@ -23,13 +30,34 @@ export default function Cart() {
         },
       });
       const data = await res.json();
-      setItems(data.items || []);
-      setTotal(data.total || 0);
+      const list = data.items || [];
+      setItems(list);
+      // drop ids that are no longer in the cart
+      prune(list.map((i) => i.cart_item_id));
     } catch (e) {
       console.log('Cart error:', e.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const isSelected    = (id) => !deselected.includes(id);
+  const selectedItems = items.filter((i) => isSelected(i.cart_item_id));
+  const selectedTotal = selectedItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+  const allSelected   = items.length > 0 && deselected.length === 0;
+
+  const toggleAll = () => {
+    if (allSelected) deselectAll(items.map((i) => i.cart_item_id));
+    else             selectAll();
+  };
+
+  const goToCheckout = () => {
+    if (selectedItems.length === 0) return;
+    router.push({
+      pathname: '/checkout',
+      // Checkout re-reads the cart itself, so only the selection travels
+      params: { cartItemIds: selectedItems.map((i) => i.cart_item_id).join(',') },
+    });
   };
 
   useFocusEffect(useCallback(() => {
@@ -100,12 +128,32 @@ export default function Cart() {
         <Text style={styles.count}>{items.length} item(s)</Text>
       </View>
 
+      <TouchableOpacity style={styles.selectAllBar} onPress={toggleAll} activeOpacity={0.7}>
+        <View style={[styles.checkbox, allSelected && styles.checkboxOn]}>
+          {allSelected && <Text style={styles.checkmark}>✓</Text>}
+        </View>
+        <Text style={styles.selectAllText}>Select All</Text>
+        <Text style={styles.selectedCount}>
+          {selectedItems.length} of {items.length} selected
+        </Text>
+      </TouchableOpacity>
+
       <FlatList
         data={items}
         keyExtractor={(item) => item.cart_item_id.toString()}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <View style={[styles.card, !isSelected(item.cart_item_id) && styles.cardOff]}>
+            <TouchableOpacity
+              style={styles.checkboxHit}
+              onPress={() => toggleItem(item.cart_item_id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+            >
+              <View style={[styles.checkbox, isSelected(item.cart_item_id) && styles.checkboxOn]}>
+                {isSelected(item.cart_item_id) && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+            </TouchableOpacity>
+
             <View style={[styles.thumb, { backgroundColor: item.hex_code || '#f0f0f0' }]}>
               {item.image ? (
                 <Image
@@ -159,14 +207,21 @@ export default function Cart() {
 
       <View style={styles.footer}>
         <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Total ({items.length} items)</Text>
-          <Text style={styles.totalAmount}>₱{parseFloat(total).toLocaleString()}</Text>
+          <Text style={styles.totalLabel}>
+            Total ({selectedItems.length} selected)
+          </Text>
+          <Text style={styles.totalAmount}>₱{selectedTotal.toLocaleString()}</Text>
         </View>
         <TouchableOpacity
-          style={styles.checkoutBtn}
-          onPress={() => router.push('/checkout')}
+          style={[styles.checkoutBtn, selectedItems.length === 0 && styles.checkoutBtnOff]}
+          onPress={goToCheckout}
+          disabled={selectedItems.length === 0}
         >
-          <Text style={styles.checkoutBtnText}>Proceed to Checkout →</Text>
+          <Text style={styles.checkoutBtnText}>
+            {selectedItems.length === 0
+              ? 'Select items to checkout'
+              : `Proceed to Checkout (${selectedItems.length}) →`}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -185,8 +240,16 @@ const styles = StyleSheet.create({
   header:         { backgroundColor: '#b91c1c', paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
   title:          { fontSize: 24, fontWeight: '700', color: '#fff' },
   count:          { fontSize: 14, color: 'rgba(255,255,255,0.85)' },
+  selectAllBar:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  selectAllText:  { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginLeft: 10 },
+  selectedCount:  { fontSize: 12, color: '#999', marginLeft: 'auto' },
+  checkboxHit:    { justifyContent: 'center', paddingRight: 10 },
+  checkbox:       { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  checkboxOn:     { backgroundColor: '#b91c1c', borderColor: '#b91c1c' },
+  checkmark:      { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
   list:           { padding: 16, paddingBottom: 200 },
   card:           { backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, flexDirection: 'row', padding: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  cardOff:        { opacity: 0.55 },
   thumb:          { width: 80, height: 80, borderRadius: 10, overflow: 'hidden' },
   info:           { flex: 1, marginLeft: 12 },
   name:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a', marginBottom: 4 },
@@ -206,5 +269,6 @@ const styles = StyleSheet.create({
   totalLabel:     { fontSize: 15, color: '#666' },
   totalAmount:    { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
   checkoutBtn:    { backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  checkoutBtnOff: { backgroundColor: '#d4a5a5' },
   checkoutBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

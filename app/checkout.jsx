@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, TextInput, ActivityIndicator, Alert
+  StyleSheet, TextInput, ActivityIndicator, Alert, Modal
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../stores/authStore';
 
 import { API_URL } from '../constants/api';
@@ -17,17 +17,63 @@ const PAYMENT_METHODS = [
 
 export default function Checkout() {
   const { token, user }             = useAuthStore();
+  const params                      = useLocalSearchParams();
   const [orderType, setOrderType]   = useState('delivery');
   const [payment, setPayment]       = useState('cod');
   const [address, setAddress]       = useState(user?.address || '');
   const [placing, setPlacing]       = useState(false);
 
-  const placeOrder = async () => {
+  // Only the cart lines ticked on the cart screen are ordered. Arriving here
+  // without params (deep link) falls back to checking out the whole cart.
+  const cartItemIds = params.cartItemIds
+    ? String(params.cartItemIds).split(',').map(Number).filter(Boolean)
+    : null;
+
+  const [items, setItems]     = useState([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [confirming, setConfirming]     = useState(false);
+
+  // Re-read the cart rather than trusting the params — price and stock may have
+  // moved since the cart screen rendered, and the review must show what will
+  // actually be charged.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch(`${API_URL}/cart`, {
+          headers: {
+            'Accept':        'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        const data = await res.json();
+        const all  = data.items || [];
+        setItems(cartItemIds ? all.filter((i) => cartItemIds.includes(i.cart_item_id)) : all);
+      } catch (e) {
+        console.log('Checkout cart error:', e.message);
+      } finally {
+        setLoadingItems(false);
+      }
+    })();
+  }, []);
+
+  const total       = items.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+  const paymentName = PAYMENT_METHODS.find((m) => m.id === payment)?.label ?? payment;
+
+  // Last stop before the order is committed and stock is deducted
+  const reviewOrder = () => {
     if (orderType === 'delivery' && !address.trim()) {
       Alert.alert('Address Required', 'Please enter your delivery address.');
       return;
     }
+    if (!loadingItems && items.length === 0) {
+      Alert.alert('Nothing to Order', 'There are no items selected for checkout.');
+      return;
+    }
+    setConfirming(true);
+  };
 
+  const placeOrder = async () => {
+    setConfirming(false);
     setPlacing(true);
     try {
       const res = await fetch(`${API_URL}/orders`, {
@@ -41,13 +87,18 @@ export default function Checkout() {
           order_type:       orderType,
           payment_method:   payment,
           shipping_address: orderType === 'delivery' ? address : null,
+          ...(cartItemIds ? { cart_item_ids: cartItemIds } : {}),
         }),
       });
       const data = await res.json();
       if (res.ok) {
         router.replace({
           pathname: '/order-success',
-          params: { orderId: data.order.id, total: data.order.total_amount },
+          params: {
+            orderId:  data.order.id,
+            total:    data.order.total_amount,
+            placedAt: data.order.order_date ?? data.order.created_at,
+          },
         });
       } else {
         Alert.alert('Error', data.message || 'Failed to place order.');
@@ -70,6 +121,41 @@ export default function Checkout() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+
+        {/* Items being ordered */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            Order Summary{items.length > 0 ? ` (${items.length} item${items.length > 1 ? 's' : ''})` : ''}
+          </Text>
+
+          {loadingItems ? (
+            <ActivityIndicator color="#b91c1c" />
+          ) : items.length === 0 ? (
+            <Text style={styles.summaryLabel}>No items selected.</Text>
+          ) : (
+            <>
+              {items.map((item) => (
+                <View key={item.cart_item_id} style={styles.lineRow}>
+                  <View style={[styles.lineSwatch, { backgroundColor: item.hex_code || '#e5e5e5' }]} />
+                  <View style={styles.lineInfo}>
+                    <Text style={styles.lineName} numberOfLines={2}>{item.name}</Text>
+                    <Text style={styles.lineMeta}>
+                      {item.size_volume ? `${item.size_volume} · ` : ''}
+                      {item.quantity} × ₱{parseFloat(item.price).toLocaleString()}
+                    </Text>
+                  </View>
+                  <Text style={styles.lineSubtotal}>
+                    ₱{parseFloat(item.subtotal).toLocaleString()}
+                  </Text>
+                </View>
+              ))}
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Subtotal</Text>
+                <Text style={styles.summaryValue}>₱{total.toLocaleString()}</Text>
+              </View>
+            </>
+          )}
+        </View>
 
         {/* Order Type */}
         <View style={styles.section}>
@@ -149,10 +235,14 @@ export default function Checkout() {
       </ScrollView>
 
       <View style={styles.footer}>
+        <View style={styles.footerTotalRow}>
+          <Text style={styles.footerTotalLabel}>Total</Text>
+          <Text style={styles.footerTotalValue}>₱{total.toLocaleString()}</Text>
+        </View>
         <TouchableOpacity
           style={styles.placeBtn}
-          onPress={placeOrder}
-          disabled={placing}
+          onPress={reviewOrder}
+          disabled={placing || loadingItems}
         >
           {placing
             ? <ActivityIndicator color="#fff" />
@@ -160,6 +250,56 @@ export default function Checkout() {
           }
         </TouchableOpacity>
       </View>
+
+      {/* Final confirmation — the order commits and deducts stock after this */}
+      <Modal
+        visible={confirming}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirming(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm Your Order</Text>
+            <Text style={styles.modalSubtitle}>
+              Please review before placing. Stock is reserved once you confirm.
+            </Text>
+
+            <View style={styles.modalDivider} />
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalKey}>Items</Text>
+              <Text style={styles.modalVal}>
+                {items.reduce((n, i) => n + i.quantity, 0)} unit(s) · {items.length} line(s)
+              </Text>
+            </View>
+            <View style={styles.modalRow}>
+              <Text style={styles.modalKey}>{orderType === 'delivery' ? 'Deliver to' : 'Pickup at'}</Text>
+              <Text style={styles.modalVal} numberOfLines={2}>
+                {orderType === 'delivery' ? address.trim() : 'NCM Paint Center, Balanga'}
+              </Text>
+            </View>
+            <View style={styles.modalRow}>
+              <Text style={styles.modalKey}>Payment</Text>
+              <Text style={styles.modalVal}>{paymentName}</Text>
+            </View>
+
+            <View style={styles.modalDivider} />
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalTotalKey}>Total</Text>
+              <Text style={styles.modalTotalVal}>₱{total.toLocaleString()}</Text>
+            </View>
+
+            <TouchableOpacity style={styles.modalConfirm} onPress={placeOrder}>
+              <Text style={styles.modalConfirmText}>Confirm Order</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setConfirming(false)}>
+              <Text style={styles.modalCancelText}>Go Back &amp; Review</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -172,6 +312,32 @@ const styles = StyleSheet.create({
   content:            { padding: 16 },
   section:            { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   sectionTitle:       { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginBottom: 14 },
+  summaryRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+  summaryLabel:       { fontSize: 14, color: '#666' },
+  summaryValue:       { fontSize: 18, fontWeight: '700', color: '#b91c1c' },
+  lineRow:            { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  lineSwatch:         { width: 34, height: 34, borderRadius: 8, marginRight: 10 },
+  lineInfo:           { flex: 1 },
+  lineName:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a' },
+  lineMeta:           { fontSize: 11.5, color: '#888', marginTop: 2 },
+  lineSubtotal:       { fontSize: 13.5, fontWeight: '700', color: '#1a1a1a', marginLeft: 8 },
+  modalBackdrop:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  modalCard:          { backgroundColor: '#fff', borderRadius: 20, padding: 22 },
+  modalTitle:         { fontSize: 19, fontWeight: '700', color: '#1a1a1a' },
+  modalSubtitle:      { fontSize: 12.5, color: '#888', marginTop: 4, lineHeight: 18 },
+  modalDivider:       { height: 1, backgroundColor: '#eee', marginVertical: 14 },
+  modalRow:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 16 },
+  modalKey:           { fontSize: 13, color: '#888' },
+  modalVal:           { fontSize: 13, color: '#1a1a1a', fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  modalTotalKey:      { fontSize: 15, color: '#1a1a1a', fontWeight: '600' },
+  modalTotalVal:      { fontSize: 22, fontWeight: '700', color: '#b91c1c' },
+  modalConfirm:       { backgroundColor: '#b91c1c', borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 6 },
+  modalConfirmText:   { color: '#fff', fontSize: 15.5, fontWeight: '700' },
+  modalCancel:        { paddingVertical: 13, alignItems: 'center' },
+  modalCancelText:    { color: '#888', fontSize: 14, fontWeight: '600' },
+  footerTotalRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  footerTotalLabel:   { fontSize: 15, color: '#666' },
+  footerTotalValue:   { fontSize: 22, fontWeight: '700', color: '#1a1a1a' },
   optionRow:          { flexDirection: 'row', gap: 12 },
   optionBtn:          { flex: 1, borderRadius: 12, paddingVertical: 16, alignItems: 'center', backgroundColor: '#f5f5f5', borderWidth: 2, borderColor: '#f5f5f5' },
   optionBtnActive:    { backgroundColor: '#fef2f2', borderColor: '#b91c1c' },

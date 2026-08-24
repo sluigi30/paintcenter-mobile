@@ -268,13 +268,20 @@ export default function ProductDetail() {
           <Text style={styles.arBtnText}>🎨 Preview on Wall</Text>
         </TouchableOpacity>
 
-        {/* Wall measurement — ARCore plane tracking for metric scale, so it can
-            work out how much paint is needed. Requires an ARCore-certified device. */}
+        {/* Paint calculator — walls in, cans of THIS paint out, at today's
+            prices. Opened with the product id rather than the whole product so
+            the calculator re-reads stock and price before it quotes a total.
+            The ARCore wall measurement lives inside it, offered per wall: it is
+            an input to the sum, not a gate in front of it, and it needs an
+            ARCore-certified device while the sum itself needs nothing. */}
         <TouchableOpacity
           style={styles.arBtnAlt}
-          onPress={() => router.push({ pathname: '/ar/preview', params: { hex: product.hex_code } })}
+          onPress={() => router.push({
+            pathname: '/ar/estimator',
+            params: { productId: product.id, hex: product.hex_code ?? '' },
+          })}
         >
-          <Text style={styles.arBtnAltText}>📐 Measure Wall &amp; Estimate Paint (AR)</Text>
+          <Text style={styles.arBtnAltText}>🧮 How Much Paint Do I Need?</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>

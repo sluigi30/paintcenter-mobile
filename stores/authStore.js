@@ -68,7 +68,14 @@ export const useAuthStore = create((set) => ({
         return { success: true };
       } else {
         set({ isLoading: false });
-        return { success: false, message: json.message || 'Registration failed.' };
+        // Pass Laravel's per-field 422 errors through untouched — the register
+        // wizard uses them to jump back to the step holding the bad field
+        // (a taken email is only discoverable here, on the last step).
+        return {
+          success: false,
+          message: json.message || 'Registration failed.',
+          errors:  json.errors ?? null,
+        };
       }
     } catch (e) {
       set({ isLoading: false });

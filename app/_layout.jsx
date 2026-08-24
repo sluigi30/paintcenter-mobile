@@ -14,6 +14,7 @@ export default function RootLayout() {
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="product/[id]" />
+      <Stack.Screen name="order/[id]" />
       <Stack.Screen name="checkout" />
       <Stack.Screen name="order-success" />
       <Stack.Screen name="ar/preview" />

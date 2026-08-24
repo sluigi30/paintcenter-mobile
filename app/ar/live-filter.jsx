@@ -1,24 +1,54 @@
 // ─────────────────────────────────────────────────────────────────────────
-// PHASE 3 — REALISTIC PAINT RECOLOR
-// The detected wall is repainted the product's real color, LIVE:
-//   • BlendMode.Color takes the paint's hue+saturation but keeps the wall's
-//     own luminance → shadows, corners and texture survive (looks painted,
-//     not stickered).
-//   • The wall mask is blurred so edges are soft, not blocky.
-//   • A swatch row lets you switch colors live; the product's hex seeds it.
-//   • Strictness slider (from Phase 2) still controls detection tightness.
+// LIVE PAINT PREVIEW
 //
-// Model: Final_Wall_Segmentation.tflite (ADE20K-derived, non-commercial, used
-// for this capstone with attribution). input & output BOTH uint8 [1,224,224,3];
-// 3 classes: 0=bg, 1=wall, 2=ceiling (argmax over the 3).
+// Point the camera at a wall; the wall — and only the wall — is repainted in the
+// product's colour, live. Furniture, doors, windows and wall art are excluded
+// per-pixel, which is why this uses CV segmentation rather than ARCore plane
+// tracking (a plane has no idea a sofa stands in front of it). Runs on any
+// camera phone; no ARCore, no certified device.
+//
+// Model: assets/models/wall_seg.tflite — ADE20K-derived, NON-COMMERCIAL, used
+// for this capstone with attribution. Must be replaced before any commercial
+// release. Input and output both uint8 [1,224,224,3]; three per-pixel class
+// scores, argmax over 0=bg, 1=wall, 2=ceiling.
+//
+// How it works, and why each piece exists, is documented in AR_PAINT_PREVIEW.md
+// together with the measurements behind it. In short:
+//   • mask cache      — inference is ~70% of a frame, so the mask is reused and
+//                       only re-segmented every INFER_MS; cached frames cost
+//                       ~0.3 ms
+//   • two-pass recolour — luminance is corrected on the raw wall FIRST, colour
+//                       applied second. The reverse order desaturates (brown
+//                       came out salmon).
+//   • explicit crop   — the resize plugin centre-crops to the target aspect
+//                       unless told otherwise, which was stretching the mask
+//                       1.78x and inflating every exclusion edge.
+//
+// Known limitation: doors are sometimes partly painted. The model has no `door`
+// class, only "not wall", and it has not learned that boundary. Swapping to a
+// full-class ADE20K model was measured twice and was worse overall.
+//
+// PROFILE (below) gates all development controls and instrumentation.
 // ─────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LogBox } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-// Harmless: react-native-skia's <Canvas> logs this on the New Architecture, but
-// we render via the frame processor (not <Canvas>), so it doesn't affect us.
+// VisionCamera's own SkiaCameraCanvas calls console.error with this on the New
+// Architecture. It concerns a <Canvas> sizing feature we never use — we render
+// through the frame processor — so it is pure noise, but it repeats on every
+// render and buries real logs in the Metro terminal.
+//
+// LogBox.ignoreLogs only silences the in-app overlay, not the terminal, so the
+// message is filtered at console.error too. Matched narrowly on purpose:
+// everything else passes straight through.
 LogBox.ignoreLogs(['<Canvas onLayout']);
+const NOISY_CANVAS_WARNING = '<Canvas onLayout';
+const origConsoleError = console.error;
+console.error = (...args) => {
+  if (typeof args[0] === 'string' && args[0].includes(NOISY_CANVAS_WARNING)) return;
+  origConsoleError(...args);
+};
 import {
   Camera,
   useCameraDevice,
@@ -29,6 +59,7 @@ import {
 import { loadTensorflowModel } from 'react-native-fast-tflite';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 import { useSharedValue } from 'react-native-worklets-core';
+import { Gyroscope } from 'expo-sensors';
 import { Asset } from 'expo-asset';
 import {
   Skia,
@@ -85,7 +116,11 @@ const ADE_WALL_IDX = 1;
 // Columns are milliseconds:
 //   res=resize  inf=model.runSync  mask=argmax loop  img=Skia.Data+MakeImage
 //   draw=drawImageRect  tot=whole frame processor   dim=camera frame size
-const PROFILE = true;
+//
+// Also gates every development control on this screen (model, rotation, refresh
+// rate, luminance strength, strictness, blur/draw/crop, and the Test Bench link).
+// Flip to true to get them all back.
+const PROFILE = false;
 
 // Log the cached (composite-only) frames too. Off by default: they are ~5x more
 // numerous than refresh frames and now reliably boring (tot ~0.3 ms), and the
@@ -170,6 +205,27 @@ const LUM_MAX = 0.85;
 // so there is a hitch at 1/INFER_MS Hz. Removing it entirely needs inference on
 // a separate thread (the runAsync route that previously hit the
 // worklets-core/reanimated conflict).
+// ── MASK LOCK ────────────────────────────────────────────────────────────
+// Re-segmenting a static wall every 200 ms makes the paint visibly crawl: on a
+// low-texture wall the model sits near its decision boundary, so each fresh
+// inference lands differently and whole regions pop in and out between frames.
+//
+// That instability is not fixable — it is a 3 MB network being genuinely
+// uncertain. Averaging masks over time would only turn flickering regions into
+// permanently half-transparent ones.
+//
+// But it only matters while the user is LOOKING, and while they are looking the
+// view is not changing. So once the phone is held still the mask is frozen: no
+// recomputation, therefore no flicker, by construction rather than by tuning.
+// Movement resumes it immediately.
+//
+// Rotation rate is the right signal — panning changes what the camera sees far
+// more than translation does. Held-still hands read ~0.02-0.05 rad/s; a
+// deliberate pan is well above 0.15.
+const GYRO_INTERVAL_MS = 100;
+const MOVE_THRESHOLD = 0.12;  // rad/s
+const STILL_DELAY_MS = 350;   // must be quiet this long before locking
+
 const INFER_INTERVALS = [
   { label: 'Every frame', v: 0 },
   { label: '8 Hz', v: 125 },
@@ -225,13 +281,43 @@ export default function LiveFilter() {
   // false reproduces the old (misaligned) behaviour for comparison.
   const [fullFrameCrop, setFullFrameCrop] = useState(true);
 
-  // Phase 1 profiling isolation switches (see PROFILE above).
+  // Degrees to rotate the model's input so the scene is upright from its point of
+  // view. The buffer is landscape-right while the phone is portrait, so 90deg
+  // makes it upright; 0 is what originally shipped (model saw the room sideways).
+  //
+  // All four stay correctly ALIGNED on screen because the mask is read back
+  // through the inverse rotation, so the only thing that varies is what the model
+  // saw — which makes this a clean A/B.
+  //
+  // 90 chosen because it both matches that reasoning and looked best on device
+  // (0 bled onto the ceiling, 270 left large ragged gaps). PROVISIONAL: that was
+  // four hand-held frames with framing drift between them, which is weak
+  // evidence. The test bench settles it properly — same fixed image, four
+  // rotations, measured coverage.
+  const [rotDeg, setRotDeg] = useState(0);
+
   const [useBlur, setUseBlur] = useState(true);       // blur ImageFilter on the composite
   const [doComposite, setDoComposite] = useState(true); // run inference but skip the draw
 
   // Survives both re-renders and frame-processor rebuilds, and is readable from
   // the worklet thread — holds the last mask so most frames can skip inference.
   const maskCache = useSharedValue(null);
+
+  // True once the phone has been held still for STILL_DELAY_MS. Read from the
+  // worklet thread to decide whether the mask may be frozen.
+  const isStill = useSharedValue(false);
+
+  useEffect(() => {
+    Gyroscope.setUpdateInterval(GYRO_INTERVAL_MS);
+    let lastMovedAt = Date.now();
+    const sub = Gyroscope.addListener(({ x, y, z }) => {
+      const rate = Math.sqrt(x * x + y * y + z * z);
+      const now = Date.now();
+      if (rate > MOVE_THRESHOLD) lastMovedAt = now;
+      isStill.value = now - lastMovedAt > STILL_DELAY_MS;
+    });
+    return () => sub.remove();
+  }, [isStill]);
 
   const rgb = useMemo(() => hexToRgb(color), [color]);
 
@@ -278,9 +364,12 @@ export default function LiveFilter() {
         let m;
         try {
           m = await loadTensorflowModel({ url: uri }, 'android-gpu');
-          console.log('PROF delegate=android-gpu');
+          if (PROFILE) console.log('PROF delegate=android-gpu');
         } catch (gpuErr) {
-          console.warn('PROF delegate=cpu-fallback reason=' + String(gpuErr));
+          // Expected on this hardware: the GPU delegate cannot build an
+          // interpreter for this model, so inference runs on CPU (~50 ms).
+          // Not an error, and not worth shouting about outside profiling.
+          if (PROFILE) console.log('PROF delegate=cpu-fallback reason=' + String(gpuErr));
           m = await loadTensorflowModel({ url: uri }, 'default');
         }
         if (!mounted) return;
@@ -288,10 +377,12 @@ export default function LiveFilter() {
         setActiveCfg(MODELS[modelKey]);
         setModel(m);
         setModelState('loaded');
-        console.log(
-          `PROF activeModel=${modelKey} in=` + JSON.stringify(m.inputs) +
-          ' out=' + JSON.stringify(m.outputs),
-        );
+        if (PROFILE) {
+          console.log(
+            `PROF activeModel=${modelKey} in=` + JSON.stringify(m.inputs) +
+            ' out=' + JSON.stringify(m.outputs),
+          );
+        }
       } catch (e) {
         console.error('[wall-model] load failed', e);
         if (mounted) setModelState('error');
@@ -329,7 +420,16 @@ export default function LiveFilter() {
       // colour refreshes immediately instead of showing the old one.
       const cached = maskCache.value;
       const isStale = cached == null || cached.key !== cacheKey;
-      const doInfer = isStale || inferMs === 0 || tStart - cached.t >= inferMs;
+      const still = isStill.value;
+
+      // Freeze once still — but only after ONE inference taken while already
+      // still. Without that the frozen mask would be whatever was computed
+      // mid-pan, from a motion-blurred frame, and it would stay wrong until the
+      // user moved again. `settled` records that the cached mask was produced
+      // from a steady view.
+      const needsSettledPass = still && !isStale && cached.settled !== true;
+      const dueByTime = inferMs === 0 || tStart - cached?.t >= inferMs;
+      const doInfer = isStale || needsSettledPass || (!still && dueByTime);
 
       if (!doInfer) {
         let tDrawnFrom = mark();
@@ -370,11 +470,17 @@ export default function LiveFilter() {
       // image; the alternative (keep the centre crop, draw the mask only over
       // that region) is geometrically clean but leaves the edges of the preview
       // unpainted, which reads as broken.
+      // `rotation` matters because the camera buffer is landscape-right while the
+      // phone is held portrait (measured: orient=landscape-right on a 1280x720
+      // frame). Left at 0deg the model sees the room on its side — wall/ceiling
+      // junctions as vertical lines, floor off to one side — and semantic
+      // segmentation leans hard on exactly those priors.
       const input = resize(frame, {
         crop: fullFrameCrop
           ? { x: 0, y: 0, width: frame.width, height: frame.height }
           : undefined,
         scale: { width: MODEL_W, height: MODEL_H },
+        rotation: rotDeg === 0 ? undefined : `${rotDeg}deg`,
         pixelFormat: 'rgb',
         dataType: 'uint8',
       });
@@ -475,12 +581,27 @@ export default function LiveFilter() {
 
       const rgba = new Uint8Array(N * 4);
       const lumRgba = greyVal >= 0 ? new Uint8Array(N * 4) : null;
+      // `p` walks the mask image in FRAME space; the model output is in ROTATED
+      // space when rotDeg != 0, so it has to be read back through the inverse
+      // rotation or the mask lands transposed. Both mask sizes are square, so
+      // maskW serves for both axes.
+      const M = maskW;
       for (let p = 0; p < N; p++) {
+        let mi;
+        if (rotDeg === 0) {
+          mi = p;
+        } else {
+          const fx = p % M;
+          const fy = (p / M) | 0;
+          if (rotDeg === 90) mi = fx * M + (M - 1 - fy);
+          else if (rotDeg === 180) mi = (M - 1 - fy) * M + (M - 1 - fx);
+          else mi = (M - 1 - fx) * M + fy; // 270
+        }
         let a;
         if (isClasses) {
-          a = out[p] === ADE_WALL_IDX ? 255 : 0;
+          a = out[mi] === ADE_WALL_IDX ? 255 : 0;
         } else {
-          const o = p * NUM_CLASSES;
+          const o = mi * NUM_CLASSES;
           const bg = out[o];
           const wall = out[o + 1];
           const ceil = out[o + 2];
@@ -539,6 +660,7 @@ export default function LiveFilter() {
         key: cacheKey,
         t: tStart,
         lrefEma,
+        settled: still,
         maskW,
         maskH,
       };
@@ -584,12 +706,12 @@ export default function LiveFilter() {
             // the safety clamp, grey/screen = what pass 2 actually drew.
             `Lref=${LrefDbg.toFixed(3)} Lpaint=${Lpaint.toFixed(3)} ` +
             `Ltgt=${Ltarget.toFixed(3)} grey=${greyVal} screen=${useScreen ? 1 : 0} ` +
-            `wallPx=${lumN}`,
+            `wallPx=${lumN} still=${still ? 1 : 0}`,
         );
       }
     },
     [model, showPaint, minConf, rgb, useBlur, doComposite, lumStrength, inferMs,
-     cacheKey, maskCache, maskW, maskH, maskKind, fullFrameCrop],
+     cacheKey, maskCache, isStill, maskW, maskH, maskKind, fullFrameCrop, rotDeg],
   );
 
   if (!hasPermission) {
@@ -658,6 +780,32 @@ export default function LiveFilter() {
           ))}
         </View>
 
+        {PROFILE && (
+          <TouchableOpacity
+            style={styles.benchBtn}
+            onPress={() => router.push('/ar/test-bench')}
+          >
+            <Text style={styles.benchText}>🧪 Test Bench (20 fixed images)</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Rotation applied to the model's input. The buffer is landscape-right
+            while the phone is portrait, so at 0deg the model sees the room on its
+            side. Wrong values look transposed — pick the one that stays aligned. */}
+        {PROFILE && (
+          <View style={styles.stricRow}>
+            {[0, 90, 180, 270].map((d) => (
+              <TouchableOpacity
+                key={d}
+                style={[styles.stricBtn, rotDeg === d && styles.stricBtnActive]}
+                onPress={() => setRotDeg(d)}
+              >
+                <Text style={styles.stricTextSm}>rot {d}°</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* Segmentation model. 3-class = fine 224x224 mask but a sofa is only
             "not wall"; ADE20K = coarse 56x56 mask but real per-class semantics. */}
         {PROFILE && (
@@ -692,42 +840,49 @@ export default function LiveFilter() {
           </View>
         )}
 
-        {/* Luminance correction strength. "Off" reproduces the old, too-light
-            result — useful for showing the before/after side by side. */}
-        <View style={styles.stricRow}>
-          {[
-            { label: 'Lum Off', v: 0 },
-            { label: '50%', v: 0.5 },
-            { label: '80%', v: 0.8 },
-            { label: 'Full', v: 1 },
-          ].map((lvl) => (
-            <TouchableOpacity
-              key={lvl.label}
-              style={[styles.stricBtn, lumStrength === lvl.v && styles.stricBtnActive]}
-              onPress={() => setLumStrength(lvl.v)}
-            >
-              <Text style={styles.stricText}>{lvl.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* Luminance correction strength. A tuning control, not a user choice —
+            "Full" is simply correct; anything less renders the paint too light. */}
+        {PROFILE && (
+          <View style={styles.stricRow}>
+            {[
+              { label: 'Lum Off', v: 0 },
+              { label: '50%', v: 0.5 },
+              { label: '80%', v: 0.8 },
+              { label: 'Full', v: 1 },
+            ].map((lvl) => (
+              <TouchableOpacity
+                key={lvl.label}
+                style={[styles.stricBtn, lumStrength === lvl.v && styles.stricBtnActive]}
+                onPress={() => setLumStrength(lvl.v)}
+              >
+                <Text style={styles.stricText}>{lvl.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-        {/* Strictness */}
-        <View style={styles.stricRow}>
-          {[
-            { label: 'Off', v: 0 },
-            { label: 'Low', v: 120 },
-            { label: 'Med', v: 160 },
-            { label: 'High', v: 195 },
-          ].map((lvl) => (
-            <TouchableOpacity
-              key={lvl.label}
-              style={[styles.stricBtn, minConf === lvl.v && styles.stricBtnActive]}
-              onPress={() => setMinConf(lvl.v)}
-            >
-              <Text style={styles.stricText}>{lvl.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* Strictness. Measured on the test set: conf 0 -> 128 moves coverage by
+            0.1pp, and even 230 costs only 4pp. It does not filter uncertain
+            pixels, it just erodes the mask edge — so it was never the bleed
+            control it was built to be, and it is not worth a user's attention. */}
+        {PROFILE && (
+          <View style={styles.stricRow}>
+            {[
+              { label: 'Off', v: 0 },
+              { label: 'Low', v: 120 },
+              { label: 'Med', v: 160 },
+              { label: 'High', v: 195 },
+            ].map((lvl) => (
+              <TouchableOpacity
+                key={lvl.label}
+                style={[styles.stricBtn, minConf === lvl.v && styles.stricBtnActive]}
+                onPress={() => setMinConf(lvl.v)}
+              >
+                <Text style={styles.stricText}>{lvl.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Phase 1 profiling isolation switches — remove once profiling is done */}
         {PROFILE && (
@@ -755,12 +910,17 @@ export default function LiveFilter() {
           </View>
         )}
 
+        {/* Press-and-hold rather than a toggle: comparing is momentary, and a
+            toggle leaves the user able to strand themselves in the unpainted
+            state wondering why the feature stopped working. */}
         <TouchableOpacity
-          style={[styles.toggle, showPaint && styles.toggleActive]}
-          onPress={() => setShowPaint((v) => !v)}
+          style={[styles.compare, !showPaint && styles.compareHeld]}
+          activeOpacity={1}
+          onPressIn={() => setShowPaint(false)}
+          onPressOut={() => setShowPaint(true)}
         >
-          <Text style={styles.toggleText}>
-            {showPaint ? 'Hide Paint (see real wall)' : 'Show Paint'}
+          <Text style={styles.compareText}>
+            {showPaint ? 'Hold to see the real wall' : 'Release to bring the paint back'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -793,6 +953,11 @@ const styles = StyleSheet.create({
   stricBtnActive: { backgroundColor: '#16a34a' },
   stricText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   stricTextSm: { color: '#fff', fontWeight: '700', fontSize: 11 },
+  compare: { backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  compareHeld: { backgroundColor: 'rgba(255,255,255,0.30)' },
+  compareText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  benchBtn: { backgroundColor: 'rgba(37,99,235,0.85)', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginBottom: 8 },
+  benchText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   toggle: { backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 14, paddingVertical: 13, alignItems: 'center' },
   toggleActive: { backgroundColor: '#dc102e' },
