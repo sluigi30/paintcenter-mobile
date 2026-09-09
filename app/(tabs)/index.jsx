@@ -197,6 +197,19 @@ export default function Home() {
             ListEmptyComponent={
               <View style={styles.center}>
                 <Text style={styles.empty}>No products match "{search.trim()}".</Text>
+                {/* A custom-mix product has no color_name for the search above
+                    to match on, so a colour search can only ever land here.
+                    This dead end is exactly where the offer to mix one belongs. */}
+                <TouchableOpacity
+                  style={styles.mixOwnBtn}
+                  onPress={() => router.push('/color/order')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.mixOwnText}>Mix your own colour →</Text>
+                </TouchableOpacity>
+                <Text style={styles.mixOwnHint}>
+                  Can't find the shade you want? We can mix it in store.
+                </Text>
               </View>
             }
           />
@@ -273,6 +286,9 @@ const styles = StyleSheet.create({
   price:      { fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
   dot:        { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#e0e0e0' },
   empty:      { color: '#999', fontSize: 15 },
+  mixOwnBtn:  { backgroundColor: '#b91c1c', borderRadius: 12, paddingVertical: 13, paddingHorizontal: 22, marginTop: 18 },
+  mixOwnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  mixOwnHint: { color: '#999', fontSize: 12.5, marginTop: 10, textAlign: 'center', lineHeight: 18 },
   footer:     { paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
   footerText: { color: '#999', fontSize: 13 },
 });

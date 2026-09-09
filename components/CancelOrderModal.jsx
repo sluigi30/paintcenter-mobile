@@ -16,10 +16,12 @@ import { CANCEL_REASONS } from '../constants/orders';
  *
  * @param orderId  id of the order to cancel, or null to stay closed
  * @param token    bearer token
+ * @param isCustom true when the order contains custom-mixed paint, which
+ *                 changes what cancelling means — see the notice below
  * @param onClose  called when the sheet is dismissed without cancelling
  * @param onDone   called after a successful cancellation, so the caller can refresh
  */
-export default function CancelOrderModal({ orderId, token, onClose, onDone }) {
+export default function CancelOrderModal({ orderId, token, isCustom, onClose, onDone }) {
   const [reason, setReason]         = useState(null);
   const [otherText, setOtherText]   = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -78,6 +80,18 @@ export default function CancelOrderModal({ orderId, token, onClose, onDone }) {
           <Text style={styles.subtitle}>
             Let us know why so we can improve. Your items go back into stock.
           </Text>
+
+          {/* Custom paint is mixed to order. The base can returns to stock, but
+              the colour cannot be un-mixed — so this is the last chance, not
+              one of several. The API closes the window at the next status. */}
+          {isCustom ? (
+            <View style={styles.customWarn}>
+              <Text style={styles.customWarnText}>
+                This order includes custom-mixed paint. Cancel now if you need
+                to — once mixing starts it can no longer be cancelled.
+              </Text>
+            </View>
+          ) : null}
 
           {CANCEL_REASONS.map((r) => (
             <TouchableOpacity
@@ -143,6 +157,8 @@ const styles = StyleSheet.create({
   backdrop:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
   card:           { backgroundColor: '#fff', borderRadius: 20, padding: 22 },
   title:          { fontSize: 19, fontWeight: '700', color: '#1a1a1a' },
+  customWarn:     { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 10, padding: 12, marginBottom: 14 },
+  customWarnText: { fontSize: 12.5, color: '#92400e', lineHeight: 18 },
   subtitle:       { fontSize: 12.5, color: '#888', marginTop: 4, marginBottom: 14, lineHeight: 18 },
   reasonRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 12, borderRadius: 10, marginBottom: 6, backgroundColor: '#f7f7f7', borderWidth: 1.5, borderColor: '#f7f7f7' },
   reasonRowActive:     { backgroundColor: '#fef2f2', borderColor: '#b91c1c' },

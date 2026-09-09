@@ -155,7 +155,9 @@ export default function Cart() {
             </TouchableOpacity>
 
             <View style={[styles.thumb, { backgroundColor: item.hex_code || '#f0f0f0' }]}>
-              {item.image ? (
+              {/* For a custom mix the colour IS what was bought — a stock photo
+                  of the untinted base can would hide it. */}
+              {item.image && !item.is_custom ? (
                 <Image
                   source={{ uri: `${API_URL.replace('/api', '')}/storage/${item.image}` }}
                   style={styles.thumb}
@@ -166,6 +168,16 @@ export default function Cart() {
 
             <View style={styles.info}>
               <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+
+              {item.is_custom ? (
+                <View style={styles.customRow}>
+                  <Text style={styles.customBadge}>CUSTOM MIX</Text>
+                  <Text style={styles.customName} numberOfLines={1}>
+                    {item.color_name || item.custom_hex}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={styles.metaRow}>
                 {item.size_volume ? (
                   <View style={styles.sizeBadge}>
@@ -174,6 +186,13 @@ export default function Cart() {
                 ) : null}
                 <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
               </View>
+
+              {/* Never fold the mixing charge into the unit price silently. */}
+              {parseFloat(item.tint_fee ?? 0) > 0 ? (
+                <Text style={styles.feeNote}>
+                  incl. ₱{parseFloat(item.tint_fee).toLocaleString()} mixing
+                </Text>
+              ) : null}
 
               <View style={styles.qtyRow}>
                 <TouchableOpacity
@@ -256,6 +275,16 @@ const styles = StyleSheet.create({
   metaRow:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   sizeBadge:      { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#b91c1c', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   sizeBadgeText:  { fontSize: 11, fontWeight: '700', color: '#b91c1c' },
+
+  // Custom-mixed lines
+  customRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  customBadge:    {
+    fontSize: 9.5, fontWeight: '800', color: '#92400e', letterSpacing: 0.5,
+    backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 4, overflow: 'hidden',
+  },
+  customName:     { flex: 1, fontSize: 12, color: '#6b7280' },
+  feeNote:        { fontSize: 11, color: '#999', marginTop: 2 },
   price:          { fontSize: 15, fontWeight: '700', color: '#b91c1c' },
   qtyRow:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
   qtyBtn:         { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },

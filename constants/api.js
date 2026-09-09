@@ -1,9 +1,12 @@
 // ─────────────────────────────────────────────────────────────
 // THE single place the backend address lives.
-// New device / new network? Run `ipconfig` on the PC serving
-// Laravel and change ONLY this line.
+//
+// Production: the Laravel Cloud backend.
+// Local dev:  swap to the laragon PC's LAN address, e.g.
+//             'http://192.168.1.69:8000' (run `ipconfig` for the current IP).
+// Change ONLY this line.
 // ─────────────────────────────────────────────────────────────
-const HOST = 'http://192.168.1.69:8000';
+const HOST = 'https://ncmpaintcenter-production-omxzmn.laravel.cloud';
 
 const API_URL     = `${HOST}/api`;      // REST endpoints
 const STORAGE_URL = `${HOST}/storage`;  // product images, brand logos, swatches

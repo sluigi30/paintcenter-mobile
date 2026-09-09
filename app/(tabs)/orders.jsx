@@ -10,7 +10,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { API_URL, STORAGE_URL } from '../../constants/api';
 import CancelOrderModal from '../../components/CancelOrderModal';
 import {
-  statusMeta, canCancel, placedAt, relativeDay, formatTimeOnly, ORDER_POLL_MS,
+  statusMeta, canCancel, hasCustomItems, placedAt, relativeDay, formatTimeOnly, ORDER_POLL_MS,
 } from '../../constants/orders';
 
 const THUMB_LIMIT = 3;
@@ -205,6 +205,7 @@ export default function Orders() {
       <CancelOrderModal
         orderId={cancelTarget}
         token={token}
+        isCustom={hasCustomItems(orders.find((o) => o.id === cancelTarget))}
         onClose={() => setCancelTarget(null)}
         onDone={fetchOrders}
       />

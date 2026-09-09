@@ -7,6 +7,7 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
+import { setPendingRegistration } from '../../stores/pendingRegistration';
 
 // ─────────────────────────────────────────────────────────────
 // Registration is a short wizard, not one long form.
@@ -167,7 +168,7 @@ export default function Register() {
       return;
     }
 
-    const result = await register({
+    const payload = {
       first_name:            form.first_name.trim(),
       last_name:             form.last_name.trim(),
       email:                 form.email.trim(),
@@ -175,10 +176,21 @@ export default function Register() {
       address:               form.address.trim() || null,
       password:              form.password,
       password_confirmation: form.password_confirmation,
-    });
+    };
+
+    const result = await register(payload);
 
     if (result.success) {
       router.replace('/(tabs)');
+      return;
+    }
+
+    // The number needs verifying first: stash the form and divert to the OTP
+    // screen, which sends a code and retries register() once it's confirmed.
+    // The password rides in memory (pendingRegistration), never a nav param.
+    if (result.otp_required) {
+      setPendingRegistration(payload);
+      router.push('/(auth)/verify-otp');
       return;
     }
 

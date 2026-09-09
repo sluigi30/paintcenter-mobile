@@ -1,16 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, Image, ScrollView, TouchableOpacity,
+  View, Text, Image, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, Alert, FlatList, Dimensions
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
+import ColorPicker from '../../components/ColorPicker';
+import { rememberColor } from '../../constants/recentColors';
 
 import { API_URL } from '../../constants/api';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+// The API returns variants unordered, so the size chips arrive as "16L, 1L, 4L".
+// Tolerable with two sizes; not with a custom-colour product carrying three
+// sizes across three bases. (The estimator parses sizes for its own arithmetic;
+// this one only has to sort.)
+const litres = (size) => {
+  const m = String(size ?? '').match(/([\d.]+)\s*(ml|l|gal)?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  switch ((m[2] ?? 'l').toLowerCase()) {
+    case 'ml':  return n / 1000;
+    case 'gal': return n * 3.785;
+    default:    return n;
+  }
+};
+
 export default function ProductDetail() {
-  const { id } = useLocalSearchParams();
+  const { id, hex: hexParam } = useLocalSearchParams();
   const [product, setProduct]     = useState(null);
   const [loading, setLoading]     = useState(true);
   const [quantity, setQuantity]   = useState(1);
@@ -19,26 +36,78 @@ export default function ProductDetail() {
   const [activeImage, setActiveImage] = useState(0);
   const { token } = useAuthStore();
 
-  const gallery = product?.images ?? [];
+  // The custom-colour sibling of a ready-mixed product, if this brand has one.
+  const [customSibling, setCustomSibling] = useState(null);
 
-  // Each size is a variant with its OWN price and stock
-  const variants = product?.active_variants ?? [];
-  const hasSizeChoice = variants.length > 1;
+  // ── Custom colour ──
+  // hexParam arrives when the customer came from the AR wall preview having
+  // already seen this colour on their own wall.
+  const [customHex, setCustomHex] = useState(hexParam ?? null);
+  const [colorName, setColorName] = useState('');
+  const [resolved, setResolved]   = useState(null);   // GET /colors/resolve
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  const gallery = product?.images ?? [];
+  const isCustom = !!product?.is_custom_color;
+
+  // Each size is a variant with its OWN price and stock.
+  // A colour can only go into the base that can carry it, so for a custom
+  // product the size list is filtered to the base the colour resolved to.
+  // '' means the paint line makes no base distinction and any can will do.
+  // The customer sees sizes; the word "base" never appears.
+  // Memoised deliberately. Rebuilt inline it is a new array on every render,
+  // which makes the effect below — which calls setSelectedVariant — run on
+  // every render too. That is the shape React reports as "Maximum update
+  // depth exceeded", and it only needs to change when the colour's base or
+  // the product does.
+  const sizeOptions = useMemo(() => {
+    const list = product?.active_variants ?? [];
+    const usable = isCustom
+      ? list.filter(v => !v.base_code || v.base_code === resolved?.base_code)
+      : list;
+    return usable.slice().sort((a, b) => litres(a.size_volume) - litres(b.size_volume));
+  }, [product, isCustom, resolved?.base_code]);
+
+  const hasSizeChoice = sizeOptions.length > 1;
+  const colourReady = !isCustom || (!!customHex && resolved?.in_gamut === true);
+
+  // Changing the colour can change the base, which retires the size that was
+  // selected. Leaving it selected would post a variant the server rejects.
+  useEffect(() => {
+    if (selectedVariant && !sizeOptions.some(v => v.id === selectedVariant.id)) {
+      setSelectedVariant(null);
+    } else if (!selectedVariant && sizeOptions.length === 1) {
+      setSelectedVariant(sizeOptions[0]);
+    }
+  }, [sizeOptions, selectedVariant]);
 
   useEffect(() => {
     fetch(`${API_URL}/products/${id}`, {
       headers: { 'Accept': 'application/json' },
     })
       .then(res => res.json())
-      .then(data => {
-        setProduct(data);
-        const list = data.active_variants ?? [];
-        // Auto-select if only one size
-        if (list.length === 1) setSelectedVariant(list[0]);
-      })
+      // Auto-selecting a lone size is handled against sizeOptions, not the raw
+      // list — on a custom product the raw list spans several bases.
+      .then(setProduct)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Someone looking at a fixed colour they don't quite want has no way to
+  // discover that this brand will mix any colour — the custom product is a
+  // separate row in the catalogue and shares no search terms with this one.
+  useEffect(() => {
+    if (!product || product.is_custom_color || !product.brand?.id) return;
+
+    let alive = true;
+    fetch(`${API_URL}/products?tintable=1&brand_id=${product.brand.id}&per_page=1`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (alive) setCustomSibling(data?.data?.[0] ?? null); })
+      .catch(() => {});   // the link is a bonus; its absence breaks nothing
+    return () => { alive = false; };
+  }, [product]);
 
   const pickVariant = (variant) => {
     if (variant.stock === 0) return;
@@ -47,6 +116,11 @@ export default function ProductDetail() {
   };
 
   const handleAddToCart = async () => {
+    if (isCustom && !colourReady) {
+      Alert.alert('Choose a Colour', 'Pick a colour we can mix before adding to cart.');
+      return;
+    }
+
     if (!selectedVariant) {
       Alert.alert('Select a Size', 'Please choose a size before adding to cart.');
       return;
@@ -64,14 +138,25 @@ export default function ProductDetail() {
         body: JSON.stringify({
           product_variant_id: selectedVariant.id,
           quantity,
+          // Sent only for a custom product — the API rejects a colour on a
+          // ready-mixed line rather than silently dropping it.
+          ...(isCustom && {
+            custom_hex: customHex,
+            custom_color_name: colorName.trim() || null,
+          }),
         }),
       });
 
       const data = await res.json();
       if (res.ok) {
+        // Recorded on the way out, not while picking: only a colour actually
+        // bought earns a place in Recent.
+        if (isCustom) rememberColor(customHex);
+
         Alert.alert(
           'Added to Cart!',
-          `${quantity}x ${product.description} (${selectedVariant.size_volume}) added.`,
+          `${quantity}x ${product.description} (${selectedVariant.size_volume})`
+            + (isCustom ? ` in ${colorName.trim() || customHex}` : '') + ' added.',
           [
             { text: 'Continue Shopping', style: 'cancel' },
             { text: 'View Cart', onPress: () => router.push('/(tabs)/cart') },
@@ -95,15 +180,34 @@ export default function ProductDetail() {
     return <View style={styles.center}><Text>Product not found.</Text></View>;
   }
 
+  // What a can of this size actually costs. Mixing is charged on top of the
+  // base price, and is never folded in silently — an unexplained gap between
+  // the shelf price and the charged price is the complaint to avoid.
+  const tintFee   = (v) => (isCustom ? parseFloat(v.tint_fee ?? 0) : 0);
+  const unitPrice = (v) => parseFloat(v.price) + tintFee(v);
+  const peso      = (n) => `₱${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
   // Price + stock reflect the chosen size; before choosing, show the range
   const shownPrice = selectedVariant
-    ? `₱${parseFloat(selectedVariant.price).toLocaleString()}`
-    : variants.length
-      ? `from ₱${Math.min(...variants.map(v => parseFloat(v.price))).toLocaleString()}`
+    ? peso(unitPrice(selectedVariant))
+    : sizeOptions.length
+      ? `from ${peso(Math.min(...sizeOptions.map(unitPrice)))}`
       : '—';
 
-  const shownStock = selectedVariant ? selectedVariant.stock : product.stock;
-  const canAdd = selectedVariant !== null && selectedVariant.stock > 0;
+  // product.stock is the total across EVERY variant, which on a custom-colour
+  // product spans bases this colour cannot go into — quoting it would promise
+  // cans that are not buyable in this colour. Count only what can hold it.
+  const shownStock = selectedVariant
+    ? selectedVariant.stock
+    : isCustom
+      ? sizeOptions.reduce((sum, v) => sum + (v.stock ?? 0), 0)
+      : product.stock;
+
+  const canAdd =
+    colourReady &&
+    selectedVariant !== null &&
+    selectedVariant.stock > 0 &&
+    (!isCustom || acknowledged);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -141,7 +245,9 @@ export default function ProductDetail() {
           )}
         </View>
       ) : (
-        <View style={[styles.image, { backgroundColor: product.hex_code || '#ccc' }]} />
+        <View style={[styles.image, {
+          backgroundColor: (isCustom ? customHex : product.hex_code) || '#ccc',
+        }]} />
       )}
 
       <View style={styles.content}>
@@ -149,7 +255,9 @@ export default function ProductDetail() {
         {/* Brand + Color Dot */}
         <View style={styles.row}>
           <Text style={styles.brand}>{product.brand?.brand_name}</Text>
-          <View style={[styles.colorDot, { backgroundColor: product.hex_code || '#ccc' }]} />
+          <View style={[styles.colorDot, {
+            backgroundColor: (isCustom ? customHex : product.hex_code) || '#ccc',
+          }]} />
         </View>
 
         {/* Name (with color name, like a normal e-commerce title) + meta line */}
@@ -171,6 +279,41 @@ export default function ProductDetail() {
           </Text>
         </View>
 
+        {/* The mixing charge, stated rather than folded into the price. */}
+        {isCustom && selectedVariant && tintFee(selectedVariant) > 0 && (
+          <Text style={styles.feeNote}>
+            {peso(parseFloat(selectedVariant.price))} + {peso(tintFee(selectedVariant))} colour
+            mixing, per can
+          </Text>
+        )}
+
+        {/* ── COLOUR PICKER — only for paint mixed to order ── */}
+        {isCustom && (
+          <View style={styles.colorSection}>
+            <Text style={styles.sizeLabel}>Choose your colour</Text>
+            <Text style={styles.colorHelp}>
+              Mixed for you in store. Any colour on the sliders below, or type a
+              code you already have.
+            </Text>
+
+            <ColorPicker
+              value={customHex}
+              onChange={setCustomHex}
+              onResolved={setResolved}
+            />
+
+            <Text style={[styles.sizeLabel, { marginTop: 4 }]}>Name it (optional)</Text>
+            <TextInput
+              style={styles.nameInput}
+              value={colorName}
+              onChangeText={setColorName}
+              placeholder="e.g. Ella's Room"
+              placeholderTextColor="#aaa"
+              maxLength={60}
+            />
+          </View>
+        )}
+
         {/* ── SIZE SELECTOR — each size has its own price + stock ── */}
         <View style={styles.sizeSection}>
           <View style={styles.sizeLabelRow}>
@@ -180,7 +323,15 @@ export default function ProductDetail() {
             )}
           </View>
           <View style={styles.sizeChips}>
-            {variants.map(variant => {
+            {isCustom && !colourReady ? (
+              <Text style={styles.sizeHint}>
+                Pick a colour above to see the sizes it comes in.
+              </Text>
+            ) : sizeOptions.length === 0 ? (
+              <Text style={styles.sizeHint}>
+                This colour isn't available in any size right now.
+              </Text>
+            ) : sizeOptions.map(variant => {
               const active  = selectedVariant?.id === variant.id;
               const soldOut = variant.stock === 0;
               return (
@@ -206,7 +357,7 @@ export default function ProductDetail() {
                     active && styles.sizeChipTextActive,
                     soldOut && styles.sizeChipTextDisabled,
                   ]}>
-                    {soldOut ? 'Sold out' : `₱${parseFloat(variant.price).toLocaleString()}`}
+                    {soldOut ? 'Sold out' : peso(unitPrice(variant))}
                   </Text>
                 </TouchableOpacity>
               );
@@ -234,11 +385,30 @@ export default function ProductDetail() {
             </TouchableOpacity>
             {selectedVariant && (
               <Text style={styles.qtyTotal}>
-                = ₱{(parseFloat(selectedVariant.price) * quantity).toLocaleString()}
+                = {peso(unitPrice(selectedVariant) * quantity)}
               </Text>
             )}
           </View>
         </View>
+
+        {/* Made to order, and unsellable to anyone else once mixed. Stated
+            HERE — at the moment of commitment — rather than as fine print at
+            checkout or as a Cancel button that has quietly disappeared. */}
+        {isCustom && (
+          <TouchableOpacity
+            style={styles.ack}
+            onPress={() => setAcknowledged(a => !a)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.ackBox, acknowledged && styles.ackBoxOn]}>
+              {acknowledged && <Text style={styles.ackTick}>✓</Text>}
+            </View>
+            <Text style={styles.ackText}>
+              I understand this paint is mixed to order and cannot be returned,
+              refunded or cancelled once mixing has started.
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── ADD TO CART ───────────────────────────────── */}
         <TouchableOpacity
@@ -250,20 +420,43 @@ export default function ProductDetail() {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.addBtnText}>
-              {!selectedVariant
-                ? 'Select a Size First'
-                : selectedVariant.stock === 0
-                  ? 'Out of Stock'
-                  : 'Add to Cart'}
+              {isCustom && !colourReady
+                ? 'Choose a Colour First'
+                : !selectedVariant
+                  ? 'Select a Size First'
+                  : selectedVariant.stock === 0
+                    ? 'Out of Stock'
+                    : isCustom && !acknowledged
+                      ? 'Tick the Box Above'
+                      : 'Add to Cart'}
             </Text>
           )}
         </TouchableOpacity>
+
+        {/* A LINK, not a toggle on this product: a finished red can cannot be
+            tinted, so this navigates to a different SKU with its own price and
+            stock. A toggle would swap those silently under the customer. */}
+        {customSibling && (
+          <TouchableOpacity
+            style={styles.mixLink}
+            onPress={() => router.push(`/product/${customSibling.id}`)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.mixLinkText}>
+              Want a different colour?{' '}
+              <Text style={styles.mixLinkStrong}>We'll mix it →</Text>
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Paint preview — CV wall segmentation. Excludes furniture, windows and
             wall art per-pixel, and needs no ARCore, so it runs on any camera phone. */}
         <TouchableOpacity
           style={styles.arBtn}
-          onPress={() => router.push({ pathname: '/ar/live-filter', params: { hex: product.hex_code } })}
+          onPress={() => router.push({
+            pathname: '/ar/live-filter',
+            params: { hex: (isCustom ? customHex : product.hex_code) ?? '' },
+          })}
         >
           <Text style={styles.arBtnText}>🎨 Preview on Wall</Text>
         </TouchableOpacity>
@@ -278,7 +471,10 @@ export default function ProductDetail() {
           style={styles.arBtnAlt}
           onPress={() => router.push({
             pathname: '/ar/estimator',
-            params: { productId: product.id, hex: product.hex_code ?? '' },
+            params: {
+              productId: product.id,
+              hex: (isCustom ? customHex : product.hex_code) ?? '',
+            },
           })}
         >
           <Text style={styles.arBtnAltText}>🧮 How Much Paint Do I Need?</Text>
@@ -337,6 +533,25 @@ const styles = StyleSheet.create({
   sizeChipTextActive: { color: '#b91c1c' },
   sizeChipTextDisabled: { color: '#bbb' },
   sizeChipPrice:      { fontSize: 11, fontWeight: '600', color: '#999', marginTop: 2 },
+  sizeHint:           { fontSize: 13, color: '#999', lineHeight: 19, paddingVertical: 4 },
+
+  // Custom colour
+  feeNote:            { fontSize: 12, color: '#666', marginTop: -16, marginBottom: 20 },
+  colorSection:       { marginBottom: 24 },
+  colorHelp:          { fontSize: 13, color: '#999', lineHeight: 19, marginTop: 4, marginBottom: 14 },
+  nameInput:          {
+    borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 11, fontSize: 15,
+    color: '#1a1a1a', backgroundColor: '#f9f9f9', marginTop: 8,
+  },
+  ack:                { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: 16 },
+  ackBox:             { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#b91c1c', alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  ackBoxOn:           { backgroundColor: '#b91c1c' },
+  ackTick:            { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
+  ackText:            { flex: 1, fontSize: 12.5, color: '#666', lineHeight: 18 },
+  mixLink:            { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 12, paddingVertical: 13, paddingHorizontal: 16, marginBottom: 12 },
+  mixLinkText:        { fontSize: 14, color: '#9a3412', textAlign: 'center' },
+  mixLinkStrong:      { fontWeight: '700' },
 
   // Quantity
   qtySection:         { marginBottom: 24 },

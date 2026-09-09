@@ -272,8 +272,32 @@ export default function PaintCalculator() {
   const [surface, setSurface] = useState(SURFACES[0].key);
   const [coats, setCoats]     = useState(2);
 
+  const [resolved, setResolved] = useState(null);
+
+  const isCustom = !!product?.is_custom_color;
+  // A custom product has no colour of its own; the one being priced came in
+  // from the picker or the wall preview.
   const hex      = product?.hex_code || params.hex || null;
-  const variants = product?.active_variants ?? [];
+  const allVariants = product?.active_variants ?? [];
+
+  // Only cans of the base that can carry this colour are buyable, so only
+  // those may feed the plan — otherwise the estimate quotes cans the cart
+  // will refuse. '' means the line makes no base distinction.
+  const variants = isCustom
+    ? allVariants.filter((v) => !v.base_code || v.base_code === resolved?.base_code)
+    : allVariants;
+
+  useEffect(() => {
+    if (!isCustom || !hex) return;
+    let alive = true;
+    fetch(`${API_URL}/colors/resolve?hex=${encodeURIComponent(hex)}`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (alive && data) setResolved(data); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [isCustom, hex]);
 
   // Prices and stock are read fresh: the plan below quotes a total and adds it
   // to the cart, and a quote built on a stale price is one the cart will reject.
@@ -369,6 +393,8 @@ export default function PaintCalculator() {
           body: JSON.stringify({
             product_variant_id: line.variant.id,
             quantity:           line.count,
+            // Without the colour this would quietly add untinted base paint.
+            ...(isCustom && hex && { custom_hex: hex }),
           }),
         });
         const data = await res.json();
@@ -579,8 +605,10 @@ export default function PaintCalculator() {
 
                 {plan.short > 0.001 && (
                   <Text style={styles.shortNote}>
-                    Only {plan.liters.toFixed(1)} L of this colour is in stock right now —
-                    {' '}{plan.short.toFixed(1)} L short of the job.
+                    {/* For a custom mix the constraint is the BASE on the shelf,
+                        not the colour — the colour is made on the spot. */}
+                    Only {plan.liters.toFixed(1)} L of {isCustom ? 'this paint' : 'this colour'}
+                    {' '}is in stock right now — {plan.short.toFixed(1)} L short of the job.
                   </Text>
                 )}
 

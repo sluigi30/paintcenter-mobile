@@ -10,7 +10,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { API_URL, STORAGE_URL } from '../../constants/api';
 import CancelOrderModal from '../../components/CancelOrderModal';
 import {
-  statusMeta, canCancel, orderTimeline, placedAt, ORDER_POLL_MS,
+  statusMeta, canCancel, hasCustomItems, orderTimeline, placedAt, ORDER_POLL_MS,
   formatOrderDate, formatDateOnly, PAYMENT_LABELS, PAYMENT_STATUS_COLORS,
 } from '../../constants/orders';
 
@@ -76,6 +76,11 @@ export default function OrderDetail() {
    * Buy Again — puts every line of this order back in the cart. Sizes may have
    * been archived or sold out since, so each line is reported on individually
    * rather than failing the whole action.
+   *
+   * A custom-mixed line MUST re-send its colour. Reposting the variant alone
+   * would silently reorder untinted base paint — the same can, the wrong
+   * product, and no error anywhere to say so. The colour is snapshotted on the
+   * order line, so it survives the variant being renamed or re-priced.
    */
   const buyAgain = async () => {
     setReordering(true);
@@ -96,6 +101,10 @@ export default function OrderDetail() {
           body: JSON.stringify({
             product_variant_id: line.product_variant_id,
             quantity:           line.quantity,
+            ...(line.custom_hex && {
+              custom_hex:        line.custom_hex,
+              custom_color_name: line.custom_color_name,
+            }),
           }),
         });
         const data = await res.json();
@@ -273,7 +282,11 @@ export default function OrderDetail() {
 
           {lines.map((line) => {
             const product = line.product ?? {};
+            // A custom line carries its own colour, snapshotted at checkout —
+            // the product it came from has none of its own.
+            const isCustom = !!line.custom_hex;
             const hasColor = product.color_code || product.color_name;
+            const swatch   = isCustom ? line.custom_hex : (product.hex_code || '#f0f0f0');
 
             return (
               <TouchableOpacity
@@ -282,8 +295,10 @@ export default function OrderDetail() {
                 activeOpacity={product.id ? 0.7 : 1}
                 onPress={() => product.id && router.push(`/product/${product.id}`)}
               >
-                <View style={[styles.itemThumb, { backgroundColor: product.hex_code || '#f0f0f0' }]}>
-                  {product.image ? (
+                <View style={[styles.itemThumb, { backgroundColor: swatch }]}>
+                  {/* A custom colour IS the product photo — covering it with a
+                      stock image of the base can would hide what was bought. */}
+                  {product.image && !isCustom ? (
                     <Image
                       source={{ uri: `${STORAGE_URL}/${product.image}` }}
                       style={styles.itemThumbImg}
@@ -299,7 +314,14 @@ export default function OrderDetail() {
                   <Text style={styles.itemName} numberOfLines={2}>
                     {product.description ?? 'Item'}
                   </Text>
-                  {hasColor ? (
+                  {isCustom ? (
+                    <View style={styles.customRow}>
+                      <Text style={styles.customBadge}>CUSTOM MIX</Text>
+                      <Text style={styles.itemColor} numberOfLines={1}>
+                        {line.custom_color_name || line.custom_hex}
+                      </Text>
+                    </View>
+                  ) : hasColor ? (
                     <Text style={styles.itemColor}>
                       Color: {[product.color_code, product.color_name].filter(Boolean).join(' · ')}
                     </Text>
@@ -430,6 +452,7 @@ export default function OrderDetail() {
       <CancelOrderModal
         orderId={cancelOpen ? order.id : null}
         token={token}
+        isCustom={hasCustomItems(order)}
         onClose={() => setCancelOpen(false)}
         onDone={fetchOrder}
       />
@@ -483,6 +506,12 @@ const styles = StyleSheet.create({
   itemBrand:     { fontSize: 10.5, fontWeight: '700', color: '#b91c1c', letterSpacing: 0.4, textTransform: 'uppercase' },
   itemName:      { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginTop: 1 },
   itemColor:     { fontSize: 12, color: '#6b7280', marginTop: 3 },
+  customRow:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  customBadge:   {
+    fontSize: 9.5, fontWeight: '800', color: '#92400e', letterSpacing: 0.5,
+    backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 4, overflow: 'hidden',
+  },
   itemMeta:      { fontSize: 12.5, color: '#9ca3af', marginTop: 3 },
   itemSubtotal:  { fontSize: 14, fontWeight: '700', color: '#1a1a1a', marginLeft: 8 },
 

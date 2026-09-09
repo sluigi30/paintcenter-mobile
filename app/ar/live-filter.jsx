@@ -120,7 +120,7 @@ const ADE_WALL_IDX = 1;
 // Also gates every development control on this screen (model, rotation, refresh
 // rate, luminance strength, strictness, blur/draw/crop, and the Test Bench link).
 // Flip to true to get them all back.
-const PROFILE = false;
+const PROFILE = true;
 
 // Log the cached (composite-only) frames too. Off by default: they are ~5x more
 // numerous than refresh frames and now reliably boring (tot ~0.3 ms), and the
@@ -182,6 +182,33 @@ const lumMultiplyNoBlur = makeLumPaint(BlendMode.Multiply, false);
 const lumScreen = makeLumPaint(BlendMode.Screen, true);
 const lumScreenNoBlur = makeLumPaint(BlendMode.Screen, false);
 
+// ── PASS 3: SPECULAR SHEEN (gloss finishes) ──────────────────────────────
+// Passes 1+2 render a matte finish: the wall's diffuse shading recoloured. A
+// glossy paint additionally throws a specular highlight — its BRIGHTEST areas
+// (a window's reflection, light falloff near a lamp) lift toward white, which
+// is what the eye reads as "shiny". Drawn as an ADDITIVE (Plus) pass AFTER the
+// colour: a real specular highlight is white and desaturated, so it belongs on
+// top of the paint, not tinting it — which is why this sits outside the
+// order-sensitive luminance/colour pair and cannot re-trigger the salmon bug.
+const specPaint = Skia.Paint();
+specPaint.setBlendMode(BlendMode.Plus);
+specPaint.setImageFilter(Skia.ImageFilter.MakeBlur(3, 3, TileMode.Clamp, null));
+const specPaintNoBlur = Skia.Paint();
+specPaintNoBlur.setBlendMode(BlendMode.Plus);
+
+// Finish → how the paint reflects light, from the product's category.
+//   sheen  strength of the specular pass (0 = pure matte, zero extra cost)
+//   hi     wall luminance above which sheen appears (highlight threshold)
+//   pow    sharpness — higher tightens the highlight to the very brightest spots
+// Textured paints ARE sold, but their surface-texture overlay is a later phase,
+// so for now they render matte (see TODO(phase2)).
+const FINISHES = {
+  matte:    { sheen: 0 },
+  gloss:    { sheen: 0.6, hi: 0.62, pow: 2.5 },
+  textured: { sheen: 0 }, // TODO(phase2): tiling texture overlay, not sheen
+};
+const DEFAULT_FINISH = 'matte';
+
 // Luma weights from the W3C compositing spec — the same ones Skia's
 // non-separable Color/Luminosity blend modes use, so pass 1 and pass 2 agree
 // on what "luminance" means.
@@ -226,15 +253,8 @@ const GYRO_INTERVAL_MS = 100;
 const MOVE_THRESHOLD = 0.12;  // rad/s
 const STILL_DELAY_MS = 350;   // must be quiet this long before locking
 
-const INFER_INTERVALS = [
-  { label: 'Every frame', v: 0 },
-  { label: '8 Hz', v: 125 },
-  { label: '5 Hz', v: 200 },
-  { label: '2 Hz', v: 500 },
-];
-
 export default function LiveFilter() {
-  const { hex } = useLocalSearchParams();
+  const { hex, finish } = useLocalSearchParams();
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const { resize } = useResizePlugin();
@@ -254,50 +274,36 @@ export default function LiveFilter() {
   const [showPaint, setShowPaint] = useState(true);
   const [model, setModel] = useState(undefined);
   const [modelState, setModelState] = useState('loading'); // loading | loaded | error
-  const [minConf, setMinConf] = useState(195); // wall-confidence threshold (Phase 2)
   const [color, setColor] = useState(hex ?? '#2563eb');
 
-  // How strongly to pull the painted region's luminance onto the paint's own
-  // lightness. 0 = old behaviour (wall luminance kept, so dark paints read far
-  // too light); 1 = the region's mean luminance matches the paint exactly.
-  const [lumStrength, setLumStrength] = useState(1);
+  // Paint finish from the product's category (matte / gloss / textured). Drives
+  // the specular sheen pass. Falls back to matte for an unknown or absent value.
+  const finishKey = finish && FINISHES[finish] ? finish : DEFAULT_FINISH;
+  const finishCfg = FINISHES[finishKey] ?? FINISHES[DEFAULT_FINISH];
+  const sheen   = finishCfg.sheen;
+  const specHi  = finishCfg.hi ?? 0.6;
+  const specPow = finishCfg.pow ?? 2.5;
 
-  // How often the mask is re-segmented (ms). 0 = every frame (old behaviour).
-  const [inferMs, setInferMs] = useState(200);
+  // ── Fixed pipeline settings ──────────────────────────────────────────────
+  // These were on-screen dev toggles, stripped for release (recoverable via git).
+  // The values are the production defaults those toggles were used to find; the
+  // full reasoning behind each is in AR_PAINT_PREVIEW.md.
+  const minConf = 195;         // wall-confidence threshold
+  const lumStrength = 1;       // pull the painted region's mean luminance fully onto the paint
+  const inferMs = 200;         // re-segment every 200 ms (~5 Hz)
+  const rotDeg = 0;            // rotation applied to the model's input
+  const fullFrameCrop = true;  // feed the whole frame, not the plugin's centre-crop
+  const useBlur = true;        // blur ImageFilter softens the mask edge
+  const doComposite = true;    // draw the recolour
 
-  // Which segmentation model backs the mask. See MODELS.
-  // `modelKey` is the SELECTION; `activeCfg` describes the model actually loaded.
-  // They must be read separately: loading is async, so deriving the mask geometry
-  // from the selection made one frame decode seg3's 150528 score bytes as a
-  // 56x56 class map (observed: hist=0:638 1:593 255:374 while activeModel=seg3).
-  // activeCfg is only ever set together with the model it describes.
-  const [modelKey, setModelKey] = useState('seg3');
+  // `modelKey` selects the model; `activeCfg` describes the one actually loaded
+  // (set together with it, since loading is async — deriving geometry from the
+  // selection alone once decoded seg3's scores as a 56x56 map).
+  const modelKey = 'seg3';
   const [activeCfg, setActiveCfg] = useState(MODELS.seg3);
   const maskW = activeCfg.maskW;
   const maskH = activeCfg.maskH;
   const maskKind = activeCfg.kind;
-
-  // Feed the model the whole frame rather than the plugin's implicit centre-crop.
-  // false reproduces the old (misaligned) behaviour for comparison.
-  const [fullFrameCrop, setFullFrameCrop] = useState(true);
-
-  // Degrees to rotate the model's input so the scene is upright from its point of
-  // view. The buffer is landscape-right while the phone is portrait, so 90deg
-  // makes it upright; 0 is what originally shipped (model saw the room sideways).
-  //
-  // All four stay correctly ALIGNED on screen because the mask is read back
-  // through the inverse rotation, so the only thing that varies is what the model
-  // saw — which makes this a clean A/B.
-  //
-  // 90 chosen because it both matches that reasoning and looked best on device
-  // (0 bled onto the ceiling, 270 left large ragged gaps). PROVISIONAL: that was
-  // four hand-held frames with framing drift between them, which is weak
-  // evidence. The test bench settles it properly — same fixed image, four
-  // rotations, measured coverage.
-  const [rotDeg, setRotDeg] = useState(0);
-
-  const [useBlur, setUseBlur] = useState(true);       // blur ImageFilter on the composite
-  const [doComposite, setDoComposite] = useState(true); // run inference but skip the draw
 
   // Survives both re-renders and frame-processor rebuilds, and is readable from
   // the worklet thread — holds the last mask so most frames can skip inference.
@@ -327,7 +333,7 @@ export default function LiveFilter() {
   // NB must come after `rgb` — reading it earlier gave "Cannot read property 'r'
   // of undefined" (Hermes compiles const to var, so the TDZ surfaces as
   // undefined rather than a ReferenceError).
-  const cacheKey = `${modelKey},${rgb.r},${rgb.g},${rgb.b},${minConf},${lumStrength}`;
+  const cacheKey = `${modelKey},${rgb.r},${rgb.g},${rgb.b},${minConf},${lumStrength},${finishKey}`;
 
   // Swatches = product color (if any) first, then the presets.
   const swatches = useMemo(() => {
@@ -445,6 +451,9 @@ export default function LiveFilter() {
           frame.drawImageRect(
             cached.img, src, dst, useBlur ? recolorPaint : recolorPaintNoBlur,
           );
+          if (cached.specImg != null) {
+            frame.drawImageRect(cached.specImg, src, dst, useBlur ? specPaint : specPaintNoBlur);
+          }
         }
         if (PROFILE && PROFILE_CACHED) {
           const tEnd = mark();
@@ -581,6 +590,10 @@ export default function LiveFilter() {
 
       const rgba = new Uint8Array(N * 4);
       const lumRgba = greyVal >= 0 ? new Uint8Array(N * 4) : null;
+      // Specular buffer only for glossy finishes; a matte paint (sheen 0) pays
+      // nothing here and the pipeline is byte-for-byte its old self.
+      const doSpec = sheen > 0;
+      const specRgba = doSpec ? new Uint8Array(N * 4) : null;
       // `p` walks the mask image in FRAME space; the model output is in ROTATED
       // space when rotDeg != 0, so it has to be read back through the inverse
       // rotation or the mask lands transposed. Both mask sizes are square, so
@@ -618,6 +631,28 @@ export default function LiveFilter() {
           lumRgba[q + 2] = greyVal;
           lumRgba[q + 3] = a;
         }
+        if (specRgba !== null) {
+          let v = 0;
+          if (a === 255) {
+            // Wall luminance at this pixel, read in the model's (rotated) space
+            // via `mi` and scaled up to the input resolution — the same mapping
+            // the luminance pre-pass uses, so the highlight stays aligned.
+            const smx = mi % maskW;
+            const smy = (mi / maskW) | 0;
+            const si = (((smy * step) | 0) * MODEL_W + ((smx * step) | 0)) * 3;
+            const Lw = (LR * input[si] + LG * input[si + 1] + LB * input[si + 2]) / 255;
+            if (Lw > specHi) {
+              let t = (Lw - specHi) / (1 - specHi); // 0..1 above the threshold
+              t = Math.pow(t, specPow);             // sharpen to the brightest spots
+              v = (255 * sheen * t) | 0;
+              if (v > 255) v = 255;
+            }
+          }
+          specRgba[q]     = v;
+          specRgba[q + 1] = v;
+          specRgba[q + 2] = v;
+          specRgba[q + 3] = a; // masked to the wall; Plus adds v only where bright
+        }
       }
       const tMask = mark();
 
@@ -635,6 +670,12 @@ export default function LiveFilter() {
         lumData = Skia.Data.fromBytes(lumRgba);
         lumImg = Skia.Image.MakeImage(imgInfo, lumData, maskW * 4);
       }
+      let specData = null;
+      let specImg = null;
+      if (specRgba !== null) {
+        specData = Skia.Data.fromBytes(specRgba);
+        specImg = Skia.Image.MakeImage(imgInfo, specData, maskW * 4);
+      }
       const tImg = mark();
 
       // Free the entry we are replacing. It is at least one refresh interval
@@ -649,6 +690,8 @@ export default function LiveFilter() {
         if (prev.data != null && prev.data.dispose) prev.data.dispose();
         if (prev.lumImg != null && prev.lumImg.dispose) prev.lumImg.dispose();
         if (prev.lumData != null && prev.lumData.dispose) prev.lumData.dispose();
+        if (prev.specImg != null && prev.specImg.dispose) prev.specImg.dispose();
+        if (prev.specData != null && prev.specData.dispose) prev.specData.dispose();
       }
 
       maskCache.value = {
@@ -656,6 +699,8 @@ export default function LiveFilter() {
         data,
         lumImg,
         lumData,
+        specImg,
+        specData,
         screen: useScreen,
         key: cacheKey,
         t: tStart,
@@ -689,6 +734,10 @@ export default function LiveFilter() {
           frame.drawImageRect(lumImg, src, dst, lp);
         }
         frame.drawImageRect(img, src, dst, useBlur ? recolorPaint : recolorPaintNoBlur);
+        // PASS 3 (gloss only): additive white specular over the painted wall.
+        if (specImg != null) {
+          frame.drawImageRect(specImg, src, dst, useBlur ? specPaint : specPaintNoBlur);
+        }
       }
       const tDraw = mark();
 
@@ -711,7 +760,8 @@ export default function LiveFilter() {
       }
     },
     [model, showPaint, minConf, rgb, useBlur, doComposite, lumStrength, inferMs,
-     cacheKey, maskCache, isStill, maskW, maskH, maskKind, fullFrameCrop, rotDeg],
+     cacheKey, maskCache, isStill, maskW, maskH, maskKind, fullFrameCrop, rotDeg,
+     sheen, specHi, specPow],
   );
 
   if (!hasPermission) {
@@ -780,135 +830,28 @@ export default function LiveFilter() {
           ))}
         </View>
 
-        {PROFILE && (
-          <TouchableOpacity
-            style={styles.benchBtn}
-            onPress={() => router.push('/ar/test-bench')}
-          >
-            <Text style={styles.benchText}>🧪 Test Bench (20 fixed images)</Text>
-          </TouchableOpacity>
-        )}
+        {/* The preview's whole commercial point. The customer has just seen
+            this colour on their own wall, in their own light — the strongest
+            moment in the app to offer to mix it. Carries the hex forward to
+            the product picker. */}
+        <TouchableOpacity
+          style={styles.orderBtn}
+          onPress={() => router.push({ pathname: '/color/order', params: { hex: color } })}
+          activeOpacity={0.85}
+        >
+          <View style={[styles.orderSwatch, { backgroundColor: color }]} />
+          <Text style={styles.orderBtnText}>Order this colour</Text>
+        </TouchableOpacity>
 
-        {/* Rotation applied to the model's input. The buffer is landscape-right
-            while the phone is portrait, so at 0deg the model sees the room on its
-            side. Wrong values look transposed — pick the one that stays aligned. */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            {[0, 90, 180, 270].map((d) => (
-              <TouchableOpacity
-                key={d}
-                style={[styles.stricBtn, rotDeg === d && styles.stricBtnActive]}
-                onPress={() => setRotDeg(d)}
-              >
-                <Text style={styles.stricTextSm}>rot {d}°</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Segmentation model. 3-class = fine 224x224 mask but a sofa is only
-            "not wall"; ADE20K = coarse 56x56 mask but real per-class semantics. */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            {Object.keys(MODELS).map((k) => (
-              <TouchableOpacity
-                key={k}
-                style={[styles.stricBtn, modelKey === k && styles.stricBtnActive]}
-                onPress={() => setModelKey(k)}
-              >
-                <Text style={styles.stricTextSm}>
-                  {MODELS[k].label} {MODELS[k].maskW}²
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Mask refresh rate. "Every frame" reproduces the old behaviour, so the
-            before/after of the cache is directly comparable. */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            {INFER_INTERVALS.map((lvl) => (
-              <TouchableOpacity
-                key={lvl.label}
-                style={[styles.stricBtn, inferMs === lvl.v && styles.stricBtnActive]}
-                onPress={() => setInferMs(lvl.v)}
-              >
-                <Text style={styles.stricTextSm}>{lvl.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Luminance correction strength. A tuning control, not a user choice —
-            "Full" is simply correct; anything less renders the paint too light. */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            {[
-              { label: 'Lum Off', v: 0 },
-              { label: '50%', v: 0.5 },
-              { label: '80%', v: 0.8 },
-              { label: 'Full', v: 1 },
-            ].map((lvl) => (
-              <TouchableOpacity
-                key={lvl.label}
-                style={[styles.stricBtn, lumStrength === lvl.v && styles.stricBtnActive]}
-                onPress={() => setLumStrength(lvl.v)}
-              >
-                <Text style={styles.stricText}>{lvl.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Strictness. Measured on the test set: conf 0 -> 128 moves coverage by
-            0.1pp, and even 230 costs only 4pp. It does not filter uncertain
-            pixels, it just erodes the mask edge — so it was never the bleed
-            control it was built to be, and it is not worth a user's attention. */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            {[
-              { label: 'Off', v: 0 },
-              { label: 'Low', v: 120 },
-              { label: 'Med', v: 160 },
-              { label: 'High', v: 195 },
-            ].map((lvl) => (
-              <TouchableOpacity
-                key={lvl.label}
-                style={[styles.stricBtn, minConf === lvl.v && styles.stricBtnActive]}
-                onPress={() => setMinConf(lvl.v)}
-              >
-                <Text style={styles.stricText}>{lvl.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Phase 1 profiling isolation switches — remove once profiling is done */}
-        {PROFILE && (
-          <View style={styles.stricRow}>
-            <TouchableOpacity
-              style={[styles.stricBtn, useBlur && styles.stricBtnActive]}
-              onPress={() => setUseBlur((v) => !v)}
-            >
-              <Text style={styles.stricText}>Blur {useBlur ? 'ON' : 'OFF'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.stricBtn, doComposite && styles.stricBtnActive]}
-              onPress={() => setDoComposite((v) => !v)}
-            >
-              <Text style={styles.stricText}>Draw {doComposite ? 'ON' : 'OFF'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.stricBtn, fullFrameCrop && styles.stricBtnActive]}
-              onPress={() => setFullFrameCrop((v) => !v)}
-            >
-              <Text style={styles.stricTextSm}>
-                {fullFrameCrop ? 'Full frame' : 'Centre crop'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Not sure what colour? Read the room and suggest wall colours that go
+            with the furniture already in it. See COLOR_SUGGESTIONS.md. */}
+        <TouchableOpacity
+          style={styles.suggestLink}
+          onPress={() => router.push('/color/suggest')}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.suggestLinkText}>💡 Suggest colours from my room</Text>
+        </TouchableOpacity>
 
         {/* Press-and-hold rather than a toggle: comparing is momentary, and a
             toggle leaves the user able to strand themselves in the unpainted
@@ -948,18 +891,15 @@ const styles = StyleSheet.create({
   swatch: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)' },
   swatchActive: { borderColor: '#fff', borderWidth: 3, transform: [{ scale: 1.12 }] },
 
-  stricRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  stricBtn: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
-  stricBtnActive: { backgroundColor: '#16a34a' },
-  stricText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  stricTextSm: { color: '#fff', fontWeight: '700', fontSize: 11 },
   compare: { backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   compareHeld: { backgroundColor: 'rgba(255,255,255,0.30)' },
   compareText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  benchBtn: { backgroundColor: 'rgba(37,99,235,0.85)', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginBottom: 8 },
-  benchText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-
-  toggle: { backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 14, paddingVertical: 13, alignItems: 'center' },
-  toggleActive: { backgroundColor: '#dc102e' },
-  toggleText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  orderBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: '#b91c1c', borderRadius: 12, paddingVertical: 14, marginBottom: 10,
+  },
+  orderSwatch: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.7)' },
+  orderBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  suggestLink: { alignItems: 'center', paddingVertical: 8, marginBottom: 8 },
+  suggestLinkText: { color: '#fff', fontSize: 13.5, fontWeight: '600' },
 });

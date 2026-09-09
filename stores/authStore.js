@@ -71,14 +71,73 @@ export const useAuthStore = create((set) => ({
         // Pass Laravel's per-field 422 errors through untouched — the register
         // wizard uses them to jump back to the step holding the bad field
         // (a taken email is only discoverable here, on the last step).
+        // `otp_required` is a separate signal: the phone must be verified first,
+        // so the wizard diverts to the OTP screen rather than showing an error.
         return {
-          success: false,
-          message: json.message || 'Registration failed.',
-          errors:  json.errors ?? null,
+          success:      false,
+          otp_required: json.otp_required ?? false,
+          message:      json.message || 'Registration failed.',
+          errors:       json.errors ?? null,
         };
       }
     } catch (e) {
       set({ isLoading: false });
+      return { success: false, message: e.message };
+    }
+  },
+
+  // Ask the API to text a verification code to a phone. Returns the cooldown so
+  // the OTP screen can disable Resend for that long. A 429 (too soon) is not an
+  // error the user must fix — it still carries a cooldown to count down.
+  sendOtp: async (phone) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/send-otp`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'Accept':           'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        return { success: true, cooldown: data.cooldown ?? 60, devCode: data.dev_code ?? null };
+      }
+      if (res.status === 429) {
+        return { success: false, cooldown: data.cooldown ?? 60, message: data.message };
+      }
+      return {
+        success: false,
+        message: data.message || data.errors?.phone?.[0] || 'Could not send the code.',
+      };
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  },
+
+  // Confirm a code for a phone. On success the number is verified server-side
+  // for a short window, which the subsequent register() call relies on.
+  verifyOtp: async (phone, code) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/verify-otp`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'Accept':           'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ phone, code }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) return { success: true };
+      return {
+        success: false,
+        message: data.errors?.code?.[0] || data.message || 'That code did not work.',
+      };
+    } catch (e) {
       return { success: false, message: e.message };
     }
   },

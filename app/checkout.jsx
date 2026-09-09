@@ -139,9 +139,17 @@ export default function Checkout() {
                   <View style={[styles.lineSwatch, { backgroundColor: item.hex_code || '#e5e5e5' }]} />
                   <View style={styles.lineInfo}>
                     <Text style={styles.lineName} numberOfLines={2}>{item.name}</Text>
+                    {item.is_custom ? (
+                      <Text style={styles.lineCustom} numberOfLines={1}>
+                        Custom mix · {item.color_name || item.custom_hex}
+                      </Text>
+                    ) : null}
                     <Text style={styles.lineMeta}>
                       {item.size_volume ? `${item.size_volume} · ` : ''}
                       {item.quantity} × ₱{parseFloat(item.price).toLocaleString()}
+                      {parseFloat(item.tint_fee ?? 0) > 0
+                        ? ` (incl. ₱${parseFloat(item.tint_fee).toLocaleString()} mixing)`
+                        : ''}
                     </Text>
                   </View>
                   <Text style={styles.lineSubtotal}>
@@ -153,6 +161,19 @@ export default function Checkout() {
                 <Text style={styles.summaryLabel}>Subtotal</Text>
                 <Text style={styles.summaryValue}>₱{total.toLocaleString()}</Text>
               </View>
+
+              {/* Repeated here, not only at add-to-cart: this is the last
+                  screen before the money moves, and a mixed can cannot be
+                  resold to anyone else. */}
+              {items.some((i) => i.is_custom) && (
+                <View style={styles.customNotice}>
+                  <Text style={styles.customNoticeText}>
+                    This order includes custom-mixed paint. It is made for you
+                    once the order is confirmed, and cannot be returned,
+                    refunded or cancelled after mixing starts.
+                  </Text>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -320,6 +341,9 @@ const styles = StyleSheet.create({
   lineInfo:           { flex: 1 },
   lineName:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a' },
   lineMeta:           { fontSize: 11.5, color: '#888', marginTop: 2 },
+  lineCustom:         { fontSize: 11.5, color: '#92400e', fontWeight: '600', marginTop: 2 },
+  customNotice:       { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 10, padding: 12, marginTop: 12 },
+  customNoticeText:   { fontSize: 12.5, color: '#92400e', lineHeight: 18 },
   lineSubtotal:       { fontSize: 13.5, fontWeight: '700', color: '#1a1a1a', marginLeft: 8 },
   modalBackdrop:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
   modalCard:          { backgroundColor: '#fff', borderRadius: 20, padding: 22 },

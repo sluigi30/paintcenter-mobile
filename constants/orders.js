@@ -113,7 +113,24 @@ export const ORDER_POLL_MS = 10000;
 /** An order can only be called off while the store has not dispatched it. */
 export const CAN_CANCEL_STATUSES = ['pending', 'processing'];
 
-export const canCancel = (order) => CAN_CANCEL_STATUSES.includes(order?.status);
+/**
+ * The window is not the same for every order: one containing custom-mixed
+ * lines closes a status earlier, because mixing happens during `processing`
+ * and a tinted can cannot be un-tinted or resold.
+ *
+ * The server appends `can_cancel` having already applied that rule, so defer
+ * to it. Keeping a second copy of the rule here would let the two drift and
+ * show a Cancel button the API then refuses. The status list stays as the
+ * fallback for a payload predating the field.
+ */
+export const canCancel = (order) =>
+  typeof order?.can_cancel === 'boolean'
+    ? order.can_cancel
+    : CAN_CANCEL_STATUSES.includes(order?.status);
+
+/** True when any line is mixed to a colour the customer chose. */
+export const hasCustomItems = (order) =>
+  order?.has_custom_items ?? (order?.order_items ?? []).some((l) => l?.custom_hex);
 
 // ─────────────────────────────────────────────────────────────
 // Dates
