@@ -120,7 +120,7 @@ const ADE_WALL_IDX = 1;
 // Also gates every development control on this screen (model, rotation, refresh
 // rate, luminance strength, strictness, blur/draw/crop, and the Test Bench link).
 // Flip to true to get them all back.
-const PROFILE = true;
+const PROFILE = false;
 
 // Log the cached (composite-only) frames too. Off by default: they are ~5x more
 // numerous than refresh frames and now reliably boring (tot ~0.3 ms), and the
@@ -145,12 +145,22 @@ function hexToRgb(hex) {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
+// Edge softness applied to all three passes. Was 3 px, chosen to hide the hard
+// 0/255 stair-steps the old one-bit mask produced. With the alpha ramp (see
+// ALPHA_MARGIN_MIN below) the softness now comes from the model's own
+// uncertainty and follows the real boundary, so a fixed radius on top is doing
+// the same job twice and over-softens. Halved rather than removed: the mask is
+// still 224² upscaled, so some smoothing still earns its place.
+// Declared here, not with the other mask constants: the paints below are built
+// at module load and would hit the temporal dead zone otherwise.
+const EDGE_BLUR_PX = 1.5;
+
 // Paint used to composite the recolor onto the camera frame:
 //  • BlendMode.Color → hue/sat from the paint, luminance from the wall
 //  • blur ImageFilter → soft mask edges instead of blocky 224px stair-steps
 const recolorPaint = Skia.Paint();
 recolorPaint.setBlendMode(BlendMode.Color);
-recolorPaint.setImageFilter(Skia.ImageFilter.MakeBlur(3, 3, TileMode.Clamp, null));
+recolorPaint.setImageFilter(Skia.ImageFilter.MakeBlur(EDGE_BLUR_PX, EDGE_BLUR_PX, TileMode.Clamp, null));
 
 // Same composite WITHOUT the blur ImageFilter.
 // (Profiled 2026-07-30: the blur costs 0.26 ms — it is NOT a bottleneck.)
@@ -164,23 +174,38 @@ recolorPaintNoBlur.setBlendMode(BlendMode.Color);
 // own luminance, while preserving the wall's relative shading (shadows, texture,
 // corner falloff) rather than flattening it.
 //
-// Multiply darkens: L' = L_wall * (L_paint / L_ref)  → mean becomes L_paint
-// Screen lightens:  L' = 1-(1-L_wall)(1-s), s = 1-(1-L_paint)/(1-L_ref)
-// Both are relative (ratio-preserving), which is why texture survives. Scaling
-// all three channels equally also leaves hue and saturation untouched, so
-// pass 1's colour is preserved.
-function makeLumPaint(mode, blur) {
+// ONE blend mode, HardLight, driven by a PER-PIXEL grey:
+//
+//   s < 0.5   HardLight = Multiply(dst, 2s)      → darkens
+//   s ≥ 0.5   HardLight = Screen(dst, 2s−1)      → lightens
+//   s = 0.5   identity, so the two branches meet with no seam
+//
+// Both directions are needed in the SAME frame, and that is why the old global
+// Multiply/Screen pair had to go. Flattening (LUM_FLATTEN) means pulling a dark
+// stain UP and a blown highlight DOWN at once; Multiply can only darken, Screen
+// can only lighten, and the blend mode is fixed per DRAW, not per pixel. A
+// single scalar grey could therefore only ever move the whole wall one way.
+//
+// Why not skip the blend and draw the finished luminance with SrcOver, since we
+// now compute it exactly? Because the grey buffer is only 224², so replacing
+// luminance outright would flatten the wall to a smooth upscaled gradient and
+// throw away the camera's real texture. HardLight stays ratio-based inside each
+// branch, so full-resolution detail survives as a ratio on top of the
+// correction. That is the same reason the original pass was ratio-based; only
+// the gain has changed.
+//
+// Scaling all three channels equally also leaves hue and saturation untouched,
+// so pass 1's colour is preserved.
+function makeLumPaint(blur) {
   const p = Skia.Paint();
-  p.setBlendMode(mode);
+  p.setBlendMode(BlendMode.HardLight);
   // Must match pass 1's edge softness, or the luminance shift gets a hard edge
   // where the colour is soft.
-  if (blur) p.setImageFilter(Skia.ImageFilter.MakeBlur(3, 3, TileMode.Clamp, null));
+  if (blur) p.setImageFilter(Skia.ImageFilter.MakeBlur(EDGE_BLUR_PX, EDGE_BLUR_PX, TileMode.Clamp, null));
   return p;
 }
-const lumMultiply = makeLumPaint(BlendMode.Multiply, true);
-const lumMultiplyNoBlur = makeLumPaint(BlendMode.Multiply, false);
-const lumScreen = makeLumPaint(BlendMode.Screen, true);
-const lumScreenNoBlur = makeLumPaint(BlendMode.Screen, false);
+const lumPaint = makeLumPaint(true);
+const lumPaintNoBlur = makeLumPaint(false);
 
 // ── PASS 3: SPECULAR SHEEN (gloss finishes) ──────────────────────────────
 // Passes 1+2 render a matte finish: the wall's diffuse shading recoloured. A
@@ -192,7 +217,7 @@ const lumScreenNoBlur = makeLumPaint(BlendMode.Screen, false);
 // order-sensitive luminance/colour pair and cannot re-trigger the salmon bug.
 const specPaint = Skia.Paint();
 specPaint.setBlendMode(BlendMode.Plus);
-specPaint.setImageFilter(Skia.ImageFilter.MakeBlur(3, 3, TileMode.Clamp, null));
+specPaint.setImageFilter(Skia.ImageFilter.MakeBlur(EDGE_BLUR_PX, EDGE_BLUR_PX, TileMode.Clamp, null));
 const specPaintNoBlur = Skia.Paint();
 specPaintNoBlur.setBlendMode(BlendMode.Plus);
 
@@ -215,10 +240,101 @@ const DEFAULT_FINISH = 'matte';
 const LR = 0.3, LG = 0.59, LB = 0.11;
 
 // Luminance the correction is allowed to aim for. Outside this band the
-// Multiply/Screen factor saturates and flattens all wall shading — see the
+// correction factor saturates and flattens all wall shading — see the
 // Ltarget clamp in the frame processor.
 const LUM_MIN = 0.1;
 const LUM_MAX = 0.85;
+
+// How much of the wall's own luminance variation survives into the paint.
+//
+// Pass 2 was ratio-based with an implicit gain of 1.0: every pixel kept its
+// luminance relative to the wall mean. That preserves shading, which was the
+// intent — but luminance carries two different things and the old code could
+// not tell them apart:
+//
+//   LIGHTING  (lamp falloff, corner shadow) — low frequency, and real paint
+//             does show it. Keep.
+//   ALBEDO    (stains, scuffs, dirt marks)  — high frequency, and real paint
+//             COVERS it. Two coats over a dark spot leaves no dark spot.
+//
+// Testers named this directly: "may dark spots nga sa pader ko and dahil
+// na-ooverlay lang siya sinusundan niya lang yung darker tone na yun" — the
+// preview tracked the dirt, so it read as a filter over a photo rather than as
+// paint on a wall. Screenshots 21/23/30/31.
+//
+// So each wall pixel is pulled toward the target, keeping k of its deviation:
+//     L' = Ltarget + k·(Lw − Lref)
+//   k = 1  → the old behaviour, every mark preserved
+//   k = 0  → dead flat, no shading at all, reads as a sticker
+// 0.35 keeps the broad falloff the eye reads as lighting while collapsing the
+// narrow dips it reads as dirt. This is the one value in the luminance pass
+// worth arguing about — tune it on a real wall, not on the test set.
+const LUM_FLATTEN = 0.35;
+
+// ── ALPHA RAMP (mask edge) ───────────────────────────────────────────────
+// The mask used to be one bit: `wall >= minConf ? 255 : 0`. But the model
+// returns a per-pixel SCORE, and collapsing it to a bit threw that away — a
+// pixel the model thought was "probably wall, not sure" rendered identically to
+// one it knew was a fan. Every object boundary is a band of exactly those
+// pixels, so every object came out ringed in bare wall.
+//
+// Tester round 2 (2026-09-14): a white outline around the electric fan, the mat
+// roll and the left wall edge, in SHARP settled frames — a permanent defect,
+// not motion lag.
+//
+// So alpha ramps on the MARGIN — how far `wall` beats its nearest rival —
+// but ONLY below the old threshold. A pixel that cleared `minConf` before still
+// gets a flat 255, byte for byte. That is deliberate: this change can only ADD
+// a graded rim under the old cut, never alter coverage that already worked, so
+// anything new on device is the rim and nothing else. It also means we are not
+// assuming the three scores are normalised — the old condition is reused as-is
+// rather than re-derived in margin terms.
+//
+//   margin <= ALPHA_MARGIN_MIN    bare. Without this floor every pixel the model
+//                                 merely leans toward picks up a tint, and dim
+//                                 or cluttered rooms haze over — which is the
+//                                 round-1 "pati appliances tinatamaan" complaint
+//                                 coming back by another route.
+//   margin >= ALPHA_MARGIN_FULL   as opaque as the ramp goes (254).
+//   between                       linear fade.
+//
+// MEASURED on device, 2026-09-14. At MIN=40 with a linear ramp the trade landed
+// wrong: the white squares of a checkered pillow came out terracotta and an
+// electric fan's blades and hub picked up paint, while at the previous build the
+// fan had been cleanly excluded. White and mid-tone surfaces read as wall-ish to
+// the model, so it mildly favours "wall" on them, and a low floor turns that
+// mild preference into visible colour. A wire fan cage is the worst case: every
+// 224² mask pixel blends cage, blade and wall, so the whole object sits in the
+// ambiguous band.
+//
+// Hence a higher floor AND a squared ramp. The floor cuts the ambiguous tail
+// off entirely; the curve then keeps what survives quiet unless the model
+// genuinely leans wall. Linear gave a half-confident pixel half the paint, which
+// is far too generous — halfway up this ramp is now a quarter of the alpha.
+const ALPHA_MARGIN_MIN = 80;
+const ALPHA_MARGIN_FULL = 150;
+// Exponent on the normalised margin. 1 = linear (too generous, see above),
+// 2 = quadratic. Raise to bleed less, lower to fill more halo.
+const ALPHA_RAMP_POW = 2;
+
+// How far from CONFIDENT wall a pixel may be and still earn ramp alpha, in mask
+// pixels.
+//
+// Raising the floor above cleaned the pillow but left an electric fan's blades
+// orange, and no floor fixes that: a wire cage has real wall visible between the
+// wires, so the model's score there is honest. Confidence cannot separate "thin
+// gap beside a wall" from "large object the model is unsure about" — they sit in
+// the same band.
+//
+// Position can. A halo hugs confident wall by definition; a fan's interior is
+// surrounded by more fan. So ramp alpha is granted ONLY within this radius of a
+// pixel that cleared `minConf` outright. The fan's outer rim still softens,
+// which is right — that rim really is a boundary — while its middle stays bare.
+//
+// 2 mask pixels is roughly 11 frame pixels at 224² over a 1280-wide frame.
+// Raise if the halo comes back; lower if paint creeps around object edges.
+const ALPHA_NEAR_RADIUS = 2;
+
 
 // ── PHASE 2: MASK CACHE ──────────────────────────────────────────────────
 // Profiled: inference is 80% of frame time (52 ms of 70 ms) and the mask loop
@@ -252,6 +368,50 @@ const LUM_MAX = 0.85;
 const GYRO_INTERVAL_MS = 100;
 const MOVE_THRESHOLD = 0.12;  // rad/s
 const STILL_DELAY_MS = 350;   // must be quiet this long before locking
+
+// ── DRIFT BREAK ──────────────────────────────────────────────────────────
+// The lock above keys on INSTANTANEOUS rotation rate, and that is a bug: a
+// drift that never crosses MOVE_THRESHOLD never touches `lastMovedAt`, so
+// `isStill` stays true, `doInfer` stays false, and the mask is frozen
+// INDEFINITELY while the view keeps moving. Staleness was unbounded, not one
+// refresh interval.
+//
+// Tester round 2 (2026-09-14) is full of it: holes cut around an electric fan
+// sitting in open wall, paint on a ceiling with a sharp diagonal edge where the
+// wall/ceiling line used to be. Slow hand drift, frozen mask, scene moved on.
+//
+// So track how far the view has ACTUALLY turned since the cached mask was
+// built, and break the lock on accumulated angle rather than on current speed.
+//
+// The noise floor is what makes this work. Held-still hands read 0.02-0.05
+// rad/s (measured, see the mask-lock note above). Integrated raw, that reaches
+// DRIFT_BREAK_RAD in about a second of holding perfectly still — the lock would
+// break constantly and bring back the exact flicker it exists to prevent. Only
+// rotation above GYRO_NOISE accumulates, which biases the estimate LOW. That is
+// the safe direction: this is a trigger, not a correction.
+const GYRO_NOISE = 0.06;       // rad/s — below this, rotation is sensor noise
+// ~2°. The frame is 1280 px across roughly a 65° FOV, so ~1000 px/rad: 0.035 rad
+// is ~35 px of mask misalignment, about where a mask edge visibly separates from
+// the object it was cut around.
+const DRIFT_BREAK_RAD = 0.035;
+
+// Hard ceiling on how old a reused mask may be, whatever the sensor says.
+//
+// The deadband above trades "does not false-trigger on hand noise" against
+// "catches very slow drift", and those two overlap: a steady 0.05 rad/s pan and
+// a still hand's jitter are the same magnitude, so the gyro cannot tell them
+// apart. No threshold closes that gap — a drift just under GYRO_NOISE would
+// accumulate nothing and freeze the mask forever, which is the bug all over
+// again in a narrower band.
+//
+// So bound the staleness directly instead of inferring it. This is the only
+// guarantee here that does not depend on the sensor being right.
+//
+// The cost is one re-segment every 4 s while genuinely still, which can pop a
+// low-confidence region in or out — the flicker the mask lock exists to stop.
+// At 0.25 Hz that is a rare blink rather than the 5 Hz crawl; an unboundedly
+// stale mask is the worse failure. Tune on device if the blink is noticeable.
+const MAX_MASK_AGE_MS = 4000;
 
 export default function LiveFilter() {
   const { hex, finish } = useLocalSearchParams();
@@ -313,17 +473,35 @@ export default function LiveFilter() {
   // worklet thread to decide whether the mask may be frozen.
   const isStill = useSharedValue(false);
 
+  // Total angle the phone has turned through since the screen opened, in
+  // radians, ignoring anything below the noise floor. Monotonic on purpose: the
+  // frame processor records its value when it builds a mask and subtracts later,
+  // so "how far has the view moved since THIS mask" is one subtraction between
+  // two reads of the same counter — no alignment between the sensor clock and
+  // the camera clock, which is the part of motion compensation that goes wrong
+  // silently.
+  const gyroTravel = useSharedValue(0);
+
   useEffect(() => {
     Gyroscope.setUpdateInterval(GYRO_INTERVAL_MS);
     let lastMovedAt = Date.now();
+    let lastSampleAt = Date.now();
+    let travel = 0;
     const sub = Gyroscope.addListener(({ x, y, z }) => {
       const rate = Math.sqrt(x * x + y * y + z * z);
       const now = Date.now();
+      // Real elapsed time, not GYRO_INTERVAL_MS: delivery is not exact, and a
+      // dropped sample would otherwise under-count the rotation it covered.
+      // Capped so returning from background does not dump one huge interval in.
+      const dt = Math.min(now - lastSampleAt, 500) / 1000;
+      lastSampleAt = now;
+      if (rate > GYRO_NOISE) travel += (rate - GYRO_NOISE) * dt;
+      gyroTravel.value = travel;
       if (rate > MOVE_THRESHOLD) lastMovedAt = now;
       isStill.value = now - lastMovedAt > STILL_DELAY_MS;
     });
     return () => sub.remove();
-  }, [isStill]);
+  }, [isStill, gyroTravel]);
 
   const rgb = useMemo(() => hexToRgb(color), [color]);
 
@@ -434,8 +612,24 @@ export default function LiveFilter() {
       // user moved again. `settled` records that the cached mask was produced
       // from a steady view.
       const needsSettledPass = still && !isStale && cached.settled !== true;
+
+      // The view has turned far enough since this mask was built that it no
+      // longer lines up — even if the phone never crossed MOVE_THRESHOLD and so
+      // still counts as "held still". Without this a slow drift freezes the mask
+      // forever; see the DRIFT BREAK note.
+      const drifted =
+        !isStale &&
+        cached.gyro != null &&
+        gyroTravel.value - cached.gyro > DRIFT_BREAK_RAD;
+
+      // Sensor-independent backstop for drift too slow to clear the noise floor.
+      const tooOld = !isStale && tStart - cached.t > MAX_MASK_AGE_MS;
       const dueByTime = inferMs === 0 || tStart - cached?.t >= inferMs;
-      const doInfer = isStale || needsSettledPass || (!still && dueByTime);
+      // `dueByTime` still gates the drift path: a mask that has fallen out of
+      // alignment is refreshed at the normal rate, never faster, so breaking the
+      // lock cannot turn into inference on every frame.
+      const doInfer =
+        isStale || needsSettledPass || ((!still || drifted || tooOld) && dueByTime);
 
       if (!doInfer) {
         let tDrawnFrom = mark();
@@ -443,10 +637,9 @@ export default function LiveFilter() {
           const src = Skia.XYWHRect(0, 0, cached.maskW, cached.maskH);
           const dst = Skia.XYWHRect(0, 0, frame.width, frame.height);
           if (cached.lumImg != null) {
-            const lp = cached.screen
-              ? (useBlur ? lumScreen : lumScreenNoBlur)
-              : (useBlur ? lumMultiply : lumMultiplyNoBlur);
-            frame.drawImageRect(cached.lumImg, src, dst, lp);
+            frame.drawImageRect(
+              cached.lumImg, src, dst, useBlur ? lumPaint : lumPaintNoBlur,
+            );
           }
           frame.drawImageRect(
             cached.img, src, dst, useBlur ? recolorPaint : recolorPaintNoBlur,
@@ -549,47 +742,56 @@ export default function LiveFilter() {
         }
       }
 
-      // Grey level for pass 2, and which blend reaches the target luminance.
+      // Anchor for pass 2. The grey itself is PER PIXEL now, so it is built in
+      // the mask loop below — this only settles the two values every pixel
+      // shares: where the correction is aiming, and what it measures from.
       const Lpaint = (LR * pr + LG * pg + LB * pb) / 255;
-      // Clamp the TARGET away from pure black/white. At Lpaint=1 the screen
-      // factor becomes 1.0, which forces every pixel to pure white and destroys
-      // all shading (observed on device: white paint went flat, textureless
-      // white). Symmetrically, near-black paint would crush to flat black. Real
-      // paint never reaches either extreme under real light — a white wall still
-      // has shadows — so aiming slightly inside the range is both safer and more
-      // physically honest.
+      // Clamp the TARGET away from pure black/white. At Lpaint=1 the correction
+      // forces every pixel to pure white and destroys all shading (observed on
+      // device: white paint went flat, textureless white). Symmetrically,
+      // near-black paint would crush to flat black. Real paint never reaches
+      // either extreme under real light — a white wall still has shadows — so
+      // aiming slightly inside the range is both safer and more physically
+      // honest.
       const Ltarget = Math.max(LUM_MIN, Math.min(LUM_MAX, Lpaint));
-      let greyVal = -1; // -1 => skip pass 2
-      let useScreen = false;
       let LrefDbg = -1;
       let lrefEma = cached != null ? cached.lrefEma : undefined;
-      if (lumN > 0 && lumStrength > 0) {
+      const doLum = lumN > 0 && lumStrength > 0;
+      if (doLum) {
         const LrefRaw = lumSum / lumN / 255;
         // Smooth Lref over time. Measured raw, it swung 0.486 -> 0.707 between
         // consecutive refreshes as the camera's auto-exposure hunted, which moved
-        // `grey` from 232 to 159 and made the painted wall visibly pulse at the
+        // the correction far enough to make the painted wall visibly pulse at the
         // refresh rate. The wall's real lightness does not change that fast, so
         // the variation is measurement noise and belongs smoothed away.
         // Carried across colour changes on purpose: Lref describes the WALL, not
         // the paint, so switching swatches should not restart the average.
+        // It matters more than it used to: Lref is now the pivot every pixel is
+        // flattened around, not just the mean the whole region is scaled by.
         lrefEma = lrefEma == null ? LrefRaw : lrefEma * 0.75 + LrefRaw * 0.25;
-        const Lref = lrefEma;
-        LrefDbg = Lref;
-        let g;
-        if (Ltarget <= Lref) {
-          g = Lref > 0.004 ? Ltarget / Lref : 1;
-          g = 1 + (g - 1) * lumStrength; // lerp toward a no-op multiply (1.0)
-        } else {
-          const denom = 1 - Lref;
-          g = denom > 0.004 ? 1 - (1 - Ltarget) / denom : 0;
-          g = g * lumStrength; // lerp toward a no-op screen (0.0)
-          useScreen = true;
+        LrefDbg = lrefEma;
+      }
+      const Lref = LrefDbg;
+
+      // Confident core, in MODEL space (indexed like the score array, not like
+      // the frame). Built up front because the alpha ramp needs to know whether
+      // a pixel sits near confident wall, and that cannot be answered while
+      // walking pixels one at a time — the neighbours may not be decided yet.
+      // One extra Uint8Array(50,176) ≈ 50 KB per refresh, alongside the ~200 KB
+      // buffers already allocated here.
+      const core = isClasses ? null : new Uint8Array(N);
+      if (core !== null) {
+        for (let m = 0; m < N; m++) {
+          const o = m * NUM_CLASSES;
+          const b = out[o];
+          const w = out[o + 1];
+          const c = out[o + 2];
+          core[m] = w > b && w >= c && w >= minConf ? 1 : 0;
         }
-        greyVal = Math.max(0, Math.min(255, Math.round(g * 255)));
       }
 
       const rgba = new Uint8Array(N * 4);
-      const lumRgba = greyVal >= 0 ? new Uint8Array(N * 4) : null;
+      const lumRgba = doLum ? new Uint8Array(N * 4) : null;
       // Specular buffer only for glossy finishes; a matte paint (sheen 0) pays
       // nothing here and the pipeline is byte-for-byte its old self.
       const doSpec = sheen > 0;
@@ -612,41 +814,118 @@ export default function LiveFilter() {
         }
         let a;
         if (isClasses) {
+          // ADE20K returns an argmax with no score behind it, so there is
+          // nothing to ramp — it stays one bit by necessity.
           a = out[mi] === ADE_WALL_IDX ? 255 : 0;
         } else {
           const o = mi * NUM_CLASSES;
           const bg = out[o];
           const wall = out[o + 1];
           const ceil = out[o + 2];
-          a = wall > bg && wall >= ceil && wall >= minConf ? 255 : 0;
+          if (wall > bg && wall >= ceil) {
+            if (wall >= minConf) {
+              a = 255; // unchanged from before — the confident core
+            } else {
+              // Below the old cut: fade in on how far wall beats its rival,
+              // instead of discarding the pixel outright.
+              const rival = bg > ceil ? bg : ceil;
+              const margin = wall - rival;
+              if (margin <= ALPHA_MARGIN_MIN) {
+                a = 0;
+              } else {
+                // Adjacency gate — see ALPHA_NEAR_RADIUS. Scan outward for any
+                // pixel that cleared minConf outright; bail on the first hit,
+                // which for a genuine halo pixel is usually immediate.
+                const cx = mi % maskW;
+                const cy = (mi / maskW) | 0;
+                let y0 = cy - ALPHA_NEAR_RADIUS; if (y0 < 0) y0 = 0;
+                let y1 = cy + ALPHA_NEAR_RADIUS; if (y1 >= maskH) y1 = maskH - 1;
+                let x0 = cx - ALPHA_NEAR_RADIUS; if (x0 < 0) x0 = 0;
+                let x1 = cx + ALPHA_NEAR_RADIUS; if (x1 >= maskW) x1 = maskW - 1;
+                let near = false;
+                for (let yy = y0; yy <= y1; yy++) {
+                  const row = yy * maskW;
+                  for (let xx = x0; xx <= x1; xx++) {
+                    if (core[row + xx] === 1) { near = true; break; }
+                  }
+                  if (near) break;
+                }
+                if (!near) {
+                  a = 0; // an object's interior, not a wall's edge
+                } else {
+                  let t = (margin - ALPHA_MARGIN_MIN) /
+                          (ALPHA_MARGIN_FULL - ALPHA_MARGIN_MIN);
+                  if (t > 1) t = 1;
+                  // Curved, not linear: a barely-favoured pixel should get
+                  // barely any paint, or whole objects wash over.
+                  a = (255 * Math.pow(t, ALPHA_RAMP_POW)) | 0;
+                  if (a > 254) a = 254; // 255 is reserved for the confident core
+                }
+              }
+            }
+          } else {
+            a = 0;
+          }
         }
         const q = p * 4;
         rgba[q] = pr;
         rgba[q + 1] = pg;
         rgba[q + 2] = pb;
         rgba[q + 3] = a;
+        // Wall luminance at this pixel, read in the model's (rotated) space via
+        // `mi` and scaled up to the input resolution — the same mapping the
+        // luminance pre-pass uses, so the correction and the highlight stay
+        // aligned with each other and with the mean. Passes 2 and 3 both want
+        // it, so it is read ONCE here rather than per pass. -1 = not a wall
+        // pixel, or nothing downstream needs it.
+        let Lw = -1;
+        if (a !== 0 && (lumRgba !== null || specRgba !== null)) {
+          const smx = mi % maskW;
+          const smy = (mi / maskW) | 0;
+          const si = (((smy * step) | 0) * MODEL_W + ((smx * step) | 0)) * 3;
+          Lw = (LR * input[si] + LG * input[si + 1] + LB * input[si + 2]) / 255;
+        }
         if (lumRgba !== null) {
-          lumRgba[q] = greyVal;
-          lumRgba[q + 1] = greyVal;
-          lumRgba[q + 2] = greyVal;
+          // 128 is HardLight's identity, so off-wall pixels are a no-op even
+          // before alpha masks them out.
+          let s = 128;
+          if (Lw >= 0) {
+            // Where this pixel should land: the paint's luminance, plus the
+            // LUM_FLATTEN share of its own deviation from the wall mean.
+            // lumStrength lerps the whole correction back toward a no-op (Lw),
+            // so the dev toggle keeps its old meaning.
+            const Lwant =
+              Lw + lumStrength * (Ltarget + LUM_FLATTEN * (Lw - Lref) - Lw);
+            // Invert HardLight to find the source grey that lands on Lwant.
+            // Below the pivot it multiplies, above it screens; the guards are
+            // for pixels already at pure black or white, where the ratio has no
+            // solution and the identity is the honest answer.
+            let g;
+            if (Lwant <= Lw) {
+              g = Lw > 0.004 ? Lwant / (2 * Lw) : 0.5;
+            } else {
+              g = Lw < 0.996 ? 1 - (1 - Lwant) / (2 * (1 - Lw)) : 0.5;
+            }
+            s = Math.max(0, Math.min(255, Math.round(g * 255)));
+          }
+          lumRgba[q] = s;
+          lumRgba[q + 1] = s;
+          lumRgba[q + 2] = s;
           lumRgba[q + 3] = a;
         }
         if (specRgba !== null) {
           let v = 0;
-          if (a === 255) {
-            // Wall luminance at this pixel, read in the model's (rotated) space
-            // via `mi` and scaled up to the input resolution — the same mapping
-            // the luminance pre-pass uses, so the highlight stays aligned.
-            const smx = mi % maskW;
-            const smy = (mi / maskW) | 0;
-            const si = (((smy * step) | 0) * MODEL_W + ((smx * step) | 0)) * 3;
-            const Lw = (LR * input[si] + LG * input[si + 1] + LB * input[si + 2]) / 255;
-            if (Lw > specHi) {
-              let t = (Lw - specHi) / (1 - specHi); // 0..1 above the threshold
-              t = Math.pow(t, specPow);             // sharpen to the brightest spots
-              v = (255 * sheen * t) | 0;
-              if (v > 255) v = 255;
-            }
+          // Was `a === 255`. With the alpha ramp almost nothing is exactly 255
+          // any more, so that test would have silently switched gloss off for
+          // every pixel outside the confident core. `Lw >= 0` is true for every
+          // pixel with any paint on it, and the buffer's own alpha already
+          // scales the highlight — so a half-painted rim gets half the sheen,
+          // which is what it should get.
+          if (Lw >= 0 && Lw > specHi) {
+            let t = (Lw - specHi) / (1 - specHi); // 0..1 above the threshold
+            t = Math.pow(t, specPow);             // sharpen to the brightest spots
+            v = (255 * sheen * t) | 0;
+            if (v > 255) v = 255;
           }
           specRgba[q]     = v;
           specRgba[q + 1] = v;
@@ -701,11 +980,13 @@ export default function LiveFilter() {
         lumData,
         specImg,
         specData,
-        screen: useScreen,
         key: cacheKey,
         t: tStart,
         lrefEma,
         settled: still,
+        // Where the rotation counter stood when this mask was built — the
+        // baseline `drifted` measures against on later frames.
+        gyro: gyroTravel.value,
         maskW,
         maskH,
       };
@@ -726,12 +1007,10 @@ export default function LiveFilter() {
         // irrelevant: BlendMode.Color then takes hue AND saturation from the
         // paint and only luminance from the wall. So the final pixel gets the
         // paint's full saturation and the corrected luminance, while the wall's
-        // relative shading survives because Multiply/Screen are ratio-based.
+        // surface detail survives because HardLight is ratio-based in both of
+        // its branches.
         if (lumImg != null) {
-          const lp = useScreen
-            ? (useBlur ? lumScreen : lumScreenNoBlur)
-            : (useBlur ? lumMultiply : lumMultiplyNoBlur);
-          frame.drawImageRect(lumImg, src, dst, lp);
+          frame.drawImageRect(lumImg, src, dst, useBlur ? lumPaint : lumPaintNoBlur);
         }
         frame.drawImageRect(img, src, dst, useBlur ? recolorPaint : recolorPaintNoBlur);
         // PASS 3 (gloss only): additive white specular over the painted wall.
@@ -751,16 +1030,18 @@ export default function LiveFilter() {
             `mirror=${frame.isMirrored ? 1 : 0} outLen=${out.length} ` +
             `blur=${useBlur ? 1 : 0} comp=${doComposite ? 1 : 0} ` +
             // Luminance-correction internals: Lref = measured mean luminance of
-            // the wall region, Lpaint = the paint's own luminance, Ltgt = after
-            // the safety clamp, grey/screen = what pass 2 actually drew.
+            // the wall region and the pivot every pixel is flattened around,
+            // Lpaint = the paint's own luminance, Ltgt = after the safety clamp,
+            // flat = how much of each pixel's own deviation survives. There is
+            // no single `grey` to log any more — it is per pixel.
             `Lref=${LrefDbg.toFixed(3)} Lpaint=${Lpaint.toFixed(3)} ` +
-            `Ltgt=${Ltarget.toFixed(3)} grey=${greyVal} screen=${useScreen ? 1 : 0} ` +
-            `wallPx=${lumN} still=${still ? 1 : 0}`,
+            `Ltgt=${Ltarget.toFixed(3)} flat=${LUM_FLATTEN} ` +
+            `wallPx=${lumN} still=${still ? 1 : 0} drift=${drifted ? 1 : 0}`,
         );
       }
     },
     [model, showPaint, minConf, rgb, useBlur, doComposite, lumStrength, inferMs,
-     cacheKey, maskCache, isStill, maskW, maskH, maskKind, fullFrameCrop, rotDeg,
+     cacheKey, maskCache, isStill, gyroTravel, maskW, maskH, maskKind, fullFrameCrop, rotDeg,
      sheen, specHi, specPow],
   );
 

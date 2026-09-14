@@ -11,15 +11,18 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.ncm.paintcenter",
       "infoPlist": {
-        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access for AR wall detection and paint preview.",
-        "NSPhotoLibraryUsageDescription": "$(PRODUCT_NAME) needs access to your photos to save paint previews."
+        "NSCameraUsageDescription": "NCM Paint Center needs camera access for the live paint filter.",
+        "NSPhotoLibraryUsageDescription": "$(PRODUCT_NAME) needs access to your photos to save paint previews.",
+        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save photos",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use your microphone"
       }
     },
     "android": {
       "package": "com.ncm.paintcenter",
       "permissions": [
         "CAMERA",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -47,6 +50,12 @@
           "enableAndroidGpuLibraries": true
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dddc1f1b-1692-4031-acd3-c5cf1ac27aba"
+      }
+    }
   }
 }
