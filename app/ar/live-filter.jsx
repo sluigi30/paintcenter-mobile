@@ -413,6 +413,31 @@ const DRIFT_BREAK_RAD = 0.035;
 // stale mask is the worse failure. Tune on device if the blink is noticeable.
 const MAX_MASK_AGE_MS = 4000;
 
+// ── PAN THROTTLE ─────────────────────────────────────────────────────────
+// Inference is synchronous on the frame it runs on, so every refresh is a ~70 ms
+// stall in a pipeline where normal frames cost ~2 ms. At INFER_MS that is FIVE
+// stalls per second, and while panning it reads as the camera image itself
+// juddering — which is exactly what the release build was reported as doing.
+// (Tested on release, not debug: the dev-build overhead was ruled out first.)
+//
+// The GPU delegate would fix it properly and does not work: it cannot build an
+// interpreter for this model on this hardware, so inference is on CPU. The real
+// fix is off-thread inference, which previously hit a worklets-core/reanimated
+// conflict. Both are out of reach today.
+//
+// So trade the thing nobody is looking at for the thing everybody sees. Nobody
+// judges paint colour mid-swing, and a mask computed from a motion-blurred frame
+// was poor anyway — that is why `settled` exists. During a deliberate pan the
+// refresh interval stretches, cutting stalls from 5/s to 2/s. Stop moving and
+// `needsSettledPass` forces a fresh mask immediately.
+//
+// Threshold sits well above MOVE_THRESHOLD (0.12, "is it moving at all") so slow
+// deliberate adjustments keep refreshing at full rate — it is only the fast
+// sweep that throttles. Push PAN_INFER_MS higher for fewer stalls and a staler
+// mask mid-pan; Infinity would suppress inference entirely while panning.
+const FAST_PAN_RAD_S = 0.35;
+const PAN_INFER_MS = 500;
+
 export default function LiveFilter() {
   const { hex, finish } = useLocalSearchParams();
   const device = useCameraDevice('back');
@@ -482,6 +507,10 @@ export default function LiveFilter() {
   // silently.
   const gyroTravel = useSharedValue(0);
 
+  // Instantaneous rotation rate, rad/s. `isStill` already answers "is it moving
+  // at all"; this answers "how fast", which the pan throttle needs.
+  const gyroRate = useSharedValue(0);
+
   useEffect(() => {
     Gyroscope.setUpdateInterval(GYRO_INTERVAL_MS);
     let lastMovedAt = Date.now();
@@ -497,11 +526,12 @@ export default function LiveFilter() {
       lastSampleAt = now;
       if (rate > GYRO_NOISE) travel += (rate - GYRO_NOISE) * dt;
       gyroTravel.value = travel;
+      gyroRate.value = rate;
       if (rate > MOVE_THRESHOLD) lastMovedAt = now;
       isStill.value = now - lastMovedAt > STILL_DELAY_MS;
     });
     return () => sub.remove();
-  }, [isStill, gyroTravel]);
+  }, [isStill, gyroTravel, gyroRate]);
 
   const rgb = useMemo(() => hexToRgb(color), [color]);
 
@@ -624,7 +654,12 @@ export default function LiveFilter() {
 
       // Sensor-independent backstop for drift too slow to clear the noise floor.
       const tooOld = !isStale && tStart - cached.t > MAX_MASK_AGE_MS;
-      const dueByTime = inferMs === 0 || tStart - cached?.t >= inferMs;
+      // Stretch the refresh interval during a deliberate pan — see PAN THROTTLE.
+      // `isStale` (a colour change) bypasses this entirely, so tapping a swatch
+      // mid-pan still repaints at once.
+      const effInferMs =
+        gyroRate.value > FAST_PAN_RAD_S ? PAN_INFER_MS : inferMs;
+      const dueByTime = inferMs === 0 || tStart - cached?.t >= effInferMs;
       // `dueByTime` still gates the drift path: a mask that has fallen out of
       // alignment is refreshed at the normal rate, never faster, so breaking the
       // lock cannot turn into inference on every frame.
@@ -1041,7 +1076,7 @@ export default function LiveFilter() {
       }
     },
     [model, showPaint, minConf, rgb, useBlur, doComposite, lumStrength, inferMs,
-     cacheKey, maskCache, isStill, gyroTravel, maskW, maskH, maskKind, fullFrameCrop, rotDeg,
+     cacheKey, maskCache, isStill, gyroTravel, gyroRate, maskW, maskH, maskKind, fullFrameCrop, rotDeg,
      sheen, specHi, specPow],
   );
 
