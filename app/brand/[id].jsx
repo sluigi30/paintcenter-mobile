@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, RefreshControl, Image
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useFocusRefresh } from '../../lib/screenRefresh';
 
 import { API_URL } from '../../constants/api';
 const PER_PAGE = 15;
@@ -21,6 +22,12 @@ export default function BrandProducts() {
   const [hasMore, setHasMore]         = useState(true);
 
   const isFetchingMore = useRef(false);
+
+  // Mirror the paging state for the focus refresh, which must stay stable —
+  // taking `page`/`selectedCat` as dependencies would re-run it on every
+  // category tap and every page load.
+  const pageRef = useRef(1);
+  const catRef  = useRef(null);
 
   const totalCount = categories.reduce((sum, c) => sum + (c.products_count || 0), 0);
 
@@ -48,6 +55,7 @@ export default function BrandProducts() {
 
       setHasMore(data.current_page < data.last_page);
       setPage(data.current_page);
+      pageRef.current = data.current_page;
     } catch (e) {
       console.log('Brand products fetch error:', e.message);
     } finally {
@@ -58,11 +66,23 @@ export default function BrandProducts() {
     }
   };
 
-  useEffect(() => { fetchCategories(); fetchProducts(); }, [id]);
+  // Focus and resume, not just mount. The category chips carry stock-aware
+  // counts and the cards carry prices, and both drift while the customer is off
+  // reading a product.
+  //
+  // Once they have paged deeper into the list, only the chips refresh: pulling
+  // page 1 again would discard everything below it and bounce them to the top.
+  useFocusRefresh(useCallback(() => {
+    fetchCategories();
+
+    if (pageRef.current <= 1) fetchProducts(1, catRef.current);
+  }, [id]));
 
   const pickCategory = (catId) => {
     if (catId === selectedCat) return;
     setSelectedCat(catId);
+    catRef.current  = catId;
+    pageRef.current = 1;
     setLoading(true);
     setPage(1);
     setHasMore(true);
@@ -96,18 +116,30 @@ export default function BrandProducts() {
           resizeMode="cover"
         />
       ) : (
-        <View style={[styles.thumb, { backgroundColor: item.hex_code || '#ccc' }]} />
+        <View style={[styles.thumb, { backgroundColor: item.colors?.[0]?.hex_code || '#ccc' }]} />
       )}
       <View style={styles.info}>
-        <Text style={styles.desc} numberOfLines={2}>
-          {item.description}{item.color_name ? ` — ${item.color_name}` : ''}
-        </Text>
+        <Text style={styles.desc} numberOfLines={2}>{item.name}</Text>
         <Text style={styles.size}>
-          {item.size_volume}{item.color_code ? `  ·  ${item.color_code}` : ''}
+          {item.size_volume}
+          {item.colors?.length === 1 && item.colors[0].color_code
+            ? `  ·  ${item.colors[0].color_code}`
+            : item.colors?.length > 1
+              ? `  ·  ${item.colors.length} colors`
+              : ''}
         </Text>
         <View style={styles.bottom}>
           <Text style={styles.price}>₱{parseFloat(item.price).toLocaleString()}</Text>
-          <View style={[styles.dot, { backgroundColor: item.hex_code || '#ccc' }]} />
+          {/* A line's shades are one card now, so the card shows a few of them
+              rather than the single swatch each colour used to get. */}
+          <View style={styles.dotRow}>
+            {(item.colors ?? []).slice(0, 4).map((c) => (
+              <View key={c.key} style={[styles.dot, { backgroundColor: c.hex_code || '#ddd' }]} />
+            ))}
+            {item.colors?.length > 4 && (
+              <Text style={styles.dotMore}>+{item.colors.length - 4}</Text>
+            )}
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -219,7 +251,9 @@ const styles = StyleSheet.create({
   size:       { fontSize: 12, color: '#999', marginTop: 4 },
   bottom:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   price:      { fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
-  dot:        { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#e0e0e0' },
+  dotRow:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  dot:        { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#e0e0e0' },
+  dotMore:    { fontSize: 11, fontWeight: '700', color: '#999', marginLeft: 2 },
   empty:      { color: '#999', fontSize: 15 },
   footer:     { paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
   footerText: { color: '#999', fontSize: 13 },

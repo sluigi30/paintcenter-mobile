@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
+import { useBadgeStore } from '../../stores/badgeStore';
 import { useCartSelection } from '../../stores/cartSelectionStore';
 
 import { API_URL } from '../../constants/api';
@@ -32,6 +33,8 @@ export default function Cart() {
       const data = await res.json();
       const list = data.items || [];
       setItems(list);
+      // Free: this response is what the badge would have asked for anyway.
+      useBadgeStore.getState().setCart(data.item_count);
       // drop ids that are no longer in the cart
       prune(list.map((i) => i.cart_item_id));
     } catch (e) {
@@ -173,9 +176,14 @@ export default function Cart() {
                 <View style={styles.customRow}>
                   <Text style={styles.customBadge}>CUSTOM MIX</Text>
                   <Text style={styles.customName} numberOfLines={1}>
-                    {item.color_name || item.custom_hex}
+                    {item.color_label || item.custom_hex}
                   </Text>
                 </View>
+              ) : item.color_label ? (
+                /* The name is the paint LINE now, not the shade — two lines of
+                   the same product in different colours would otherwise be
+                   indistinguishable in the cart. */
+                <Text style={styles.shadeName} numberOfLines={1}>{item.color_label}</Text>
               ) : null}
 
               <View style={styles.metaRow}>
@@ -283,6 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 4, overflow: 'hidden',
   },
+  shadeName:          { fontSize: 12.5, color: '#666', fontWeight: '600', marginTop: 2 },
   customName:     { flex: 1, fontSize: 12, color: '#6b7280' },
   feeNote:        { fontSize: 11, color: '#999', marginTop: 2 },
   price:          { fontSize: 15, fontWeight: '700', color: '#b91c1c' },

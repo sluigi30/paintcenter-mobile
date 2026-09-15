@@ -6,6 +6,7 @@ import {
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
+import { useResumeWhileFocused } from '../../lib/screenRefresh';
 
 import { API_URL, STORAGE_URL } from '../../constants/api';
 import CancelOrderModal from '../../components/CancelOrderModal';
@@ -72,6 +73,10 @@ export default function OrderDetail() {
     return () => clearInterval(timer);
   }, [id, token]));
 
+  // Timers do not run while the app is backgrounded — pick the status up on
+  // the way back in rather than a tick later.
+  useResumeWhileFocused(useCallback(() => fetchOrder({ silent: true }), [id, token]));
+
   /**
    * Buy Again — puts every line of this order back in the cart. Sizes may have
    * been archived or sold out since, so each line is reported on individually
@@ -112,10 +117,10 @@ export default function OrderDetail() {
         if (res.ok) {
           added += 1;
         } else {
-          failures.push(`${line.product?.description ?? 'Item'}: ${data.message ?? 'unavailable'}`);
+          failures.push(`${line.product?.name ?? 'Item'}: ${data.message ?? 'unavailable'}`);
         }
       } catch (e) {
-        failures.push(`${line.product?.description ?? 'Item'}: ${e.message}`);
+        failures.push(`${line.product?.name ?? 'Item'}: ${e.message}`);
       }
     }
 
@@ -284,9 +289,12 @@ export default function OrderDetail() {
             const product = line.product ?? {};
             // A custom line carries its own colour, snapshotted at checkout —
             // the product it came from has none of its own.
+            // Colour, like size and price, is snapshotted onto the LINE at
+            // checkout: the shade is one of many the product now carries, and
+            // it can be recoloured or archived without rewriting this order.
             const isCustom = !!line.custom_hex;
-            const hasColor = product.color_code || product.color_name;
-            const swatch   = isCustom ? line.custom_hex : (product.hex_code || '#f0f0f0');
+            const hasColor = !isCustom && !!line.color_label;
+            const swatch   = line.display_color || '#f0f0f0';
 
             return (
               <TouchableOpacity
@@ -312,7 +320,7 @@ export default function OrderDetail() {
                     <Text style={styles.itemBrand}>{product.brand.brand_name}</Text>
                   ) : null}
                   <Text style={styles.itemName} numberOfLines={2}>
-                    {product.description ?? 'Item'}
+                    {product.name ?? 'Item'}
                   </Text>
                   {isCustom ? (
                     <View style={styles.customRow}>
@@ -322,9 +330,7 @@ export default function OrderDetail() {
                       </Text>
                     </View>
                   ) : hasColor ? (
-                    <Text style={styles.itemColor}>
-                      Color: {[product.color_code, product.color_name].filter(Boolean).join(' · ')}
-                    </Text>
+                    <Text style={styles.itemColor}>Color: {line.color_label}</Text>
                   ) : null}
                   <Text style={styles.itemMeta}>
                     {/* size_volume is snapshotted on the line, so it still reads

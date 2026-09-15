@@ -5,21 +5,36 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../stores/authStore';
+import { useBadgeStore } from '../stores/badgeStore';
 
 import { API_URL } from '../constants/api';
 
 const PAYMENT_METHODS = [
-  { id: 'cod',   label: 'Cash on Delivery', icon: '💵' },
-  { id: 'gcash', label: 'GCash',            icon: '📱' },
+  { id: 'cod',   label: 'Cash on Delivery',  icon: '💵' },
+  { id: 'gcash', label: 'GCash',             icon: '📱' },
   { id: 'card',  label: 'Credit/Debit Card', icon: '💳' },
-  { id: 'cash',  label: 'Cash (Pickup)',     icon: '🏪' },
 ];
+
+/**
+ * Which methods each order type may use. Mirrors Order::PAYMENT_METHODS_BY_TYPE
+ * on the server, which rejects the rest — this list only decides what is shown.
+ *
+ * Cash on Delivery made no sense for a pickup and was offered anyway, and
+ * "Cash (Pickup)" is gone entirely: a pickup order that costs nothing to place
+ * and nothing to abandon is free to spam, while its stock sits reserved for
+ * someone who never comes. Pickups are paid online.
+ */
+const METHODS_FOR = {
+  delivery: ['cod', 'gcash', 'card'],
+  pickup:   ['gcash', 'card'],
+};
 
 export default function Checkout() {
   const { token, user }             = useAuthStore();
   const params                      = useLocalSearchParams();
   const [orderType, setOrderType]   = useState('delivery');
   const [payment, setPayment]       = useState('cod');
+  const paymentMethods = PAYMENT_METHODS.filter((m) => METHODS_FOR[orderType].includes(m.id));
   const [address, setAddress]       = useState(user?.address || '');
   const [placing, setPlacing]       = useState(false);
 
@@ -59,6 +74,14 @@ export default function Checkout() {
   const total       = items.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
   const paymentName = PAYMENT_METHODS.find((m) => m.id === payment)?.label ?? payment;
 
+  // Switching to pickup while Cash on Delivery is ticked would otherwise leave
+  // a selection the server refuses, discovered only at Place Order.
+  useEffect(() => {
+    if (!METHODS_FOR[orderType].includes(payment)) {
+      setPayment(METHODS_FOR[orderType][0]);
+    }
+  }, [orderType, payment]);
+
   // Last stop before the order is committed and stock is deducted
   const reviewOrder = () => {
     if (orderType === 'delivery' && !address.trim()) {
@@ -92,6 +115,10 @@ export default function Checkout() {
       });
       const data = await res.json();
       if (res.ok) {
+        // A partial checkout leaves the unticked lines behind, so the new count
+        // has to come from the server rather than being assumed to be zero.
+        useBadgeStore.getState().refresh(token);
+
         router.replace({
           pathname: '/order-success',
           params: {
@@ -141,8 +168,12 @@ export default function Checkout() {
                     <Text style={styles.lineName} numberOfLines={2}>{item.name}</Text>
                     {item.is_custom ? (
                       <Text style={styles.lineCustom} numberOfLines={1}>
-                        Custom mix · {item.color_name || item.custom_hex}
+                        Custom mix · {item.color_label || item.custom_hex}
                       </Text>
+                    ) : item.color_label ? (
+                      /* The name is the paint LINE now, so the shade has to be
+                         stated — this is the last screen before committing. */
+                      <Text style={styles.lineShade} numberOfLines={1}>{item.color_label}</Text>
                     ) : null}
                     <Text style={styles.lineMeta}>
                       {item.size_volume ? `${item.size_volume} · ` : ''}
@@ -235,7 +266,13 @@ export default function Checkout() {
         {/* Payment Method */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payment Method</Text>
-          {PAYMENT_METHODS.map((method) => (
+          {orderType === 'pickup' && (
+            <Text style={styles.paymentNote}>
+              Pickup orders are paid online, so your paint is reserved and
+              waiting when you arrive.
+            </Text>
+          )}
+          {paymentMethods.map((method) => (
             <TouchableOpacity
               key={method.id}
               style={[styles.paymentRow, payment === method.id && styles.paymentRowActive]}
@@ -341,6 +378,7 @@ const styles = StyleSheet.create({
   lineInfo:           { flex: 1 },
   lineName:           { fontSize: 13, fontWeight: '600', color: '#1a1a1a' },
   lineMeta:           { fontSize: 11.5, color: '#888', marginTop: 2 },
+  lineShade:          { fontSize: 12, color: '#666', fontWeight: '600', marginTop: 1 },
   lineCustom:         { fontSize: 11.5, color: '#92400e', fontWeight: '600', marginTop: 2 },
   customNotice:       { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 10, padding: 12, marginTop: 12 },
   customNoticeText:   { fontSize: 12.5, color: '#92400e', lineHeight: 18 },
@@ -374,6 +412,7 @@ const styles = StyleSheet.create({
   pickupTitle:        { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
   pickupAddr:         { fontSize: 13, color: '#666', marginTop: 2 },
   pickupHours:        { fontSize: 12, color: '#b91c1c', marginTop: 2 },
+  paymentNote:        { fontSize: 12.5, color: '#666', lineHeight: 18, marginBottom: 12, marginTop: -4 },
   paymentRow:         { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, marginBottom: 8, backgroundColor: '#f5f5f5', borderWidth: 2, borderColor: '#f5f5f5' },
   paymentRowActive:   { backgroundColor: '#fef2f2', borderColor: '#b91c1c' },
   paymentIcon:        { fontSize: 24, marginRight: 12 },

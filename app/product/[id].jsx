@@ -1,20 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, Image, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, ActivityIndicator, Alert, FlatList, Dimensions
+  StyleSheet, ActivityIndicator, Alert, FlatList, Dimensions, RefreshControl
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useFocusRefresh } from '../../lib/screenRefresh';
 import { useAuthStore } from '../../stores/authStore';
+import { useBadgeStore } from '../../stores/badgeStore';
 import ColorPicker from '../../components/ColorPicker';
 import { rememberColor } from '../../constants/recentColors';
 
 import { API_URL } from '../../constants/api';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// The API returns variants unordered, so the size chips arrive as "16L, 1L, 4L".
-// Tolerable with two sizes; not with a custom-colour product carrying three
-// sizes across three bases. (The estimator parses sizes for its own arithmetic;
-// this one only has to sort.)
+// The API returns variants in the order the admin arranged them, which is the
+// order the COLOUR chips want. Sizes are a different matter: "16L, 1L, 4L" is
+// nobody's idea of an order, so the size chips are sorted by volume regardless.
+// (The estimator parses sizes for its own arithmetic; this one only has to sort.)
 const litres = (size) => {
   const m = String(size ?? '').match(/([\d.]+)\s*(ml|l|gal)?/i);
   if (!m) return 0;
@@ -32,7 +34,12 @@ export default function ProductDetail() {
   const [loading, setLoading]     = useState(true);
   const [quantity, setQuantity]   = useState(1);
   const [adding, setAdding]       = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  // One product now carries every shade of its line, so the colour is chosen
+  // here the same way the size is. Identified by the variant's color_key —
+  // the (code, name) pair — because two shades can share a blank code.
+  const [selectedColorKey, setSelectedColorKey] = useState(null);
   const [activeImage, setActiveImage] = useState(0);
   const { token } = useAuthStore();
 
@@ -50,6 +57,18 @@ export default function ProductDetail() {
   const gallery = product?.images ?? [];
   const isCustom = !!product?.is_custom_color;
 
+  // Ready-mixed shades this product is stocked in. Empty for a custom-colour
+  // product (the customer mixes their own) and for anything sold in no
+  // particular colour — thinners, tools.
+  const colors         = product?.colors ?? [];
+  const hasColorChoice = colors.length > 1;
+  const selectedColor  = colors.find(c => c.key === selectedColorKey) ?? null;
+
+  // The swatch shown in the header and on the empty-gallery fallback.
+  const shownHex = isCustom
+    ? customHex
+    : (selectedColor?.hex_code ?? colors[0]?.hex_code ?? null);
+
   // Each size is a variant with its OWN price and stock.
   // A colour can only go into the base that can carry it, so for a custom
   // product the size list is filtered to the base the colour resolved to.
@@ -62,14 +81,40 @@ export default function ProductDetail() {
   // the product does.
   const sizeOptions = useMemo(() => {
     const list = product?.active_variants ?? [];
-    const usable = isCustom
-      ? list.filter(v => !v.base_code || v.base_code === resolved?.base_code)
-      : list;
+
+    if (isCustom) {
+      return list
+        .filter(v => !v.base_code || v.base_code === resolved?.base_code)
+        .slice().sort((a, b) => litres(a.size_volume) - litres(b.size_volume));
+    }
+
+    // A shade is not stocked in every size — Burnt Sienna may come in 1L and
+    // 4L while White also comes in 16L. Showing the product's sizes rather
+    // than the CHOSEN COLOUR's would offer cans that do not exist.
+    const usable = colors.length === 0
+      ? list
+      : selectedColorKey
+        ? list.filter(v => v.color_key === selectedColorKey)
+        : [];
+
     return usable.slice().sort((a, b) => litres(a.size_volume) - litres(b.size_volume));
-  }, [product, isCustom, resolved?.base_code]);
+  }, [product, isCustom, resolved?.base_code, selectedColorKey, colors.length]);
 
   const hasSizeChoice = sizeOptions.length > 1;
-  const colourReady = !isCustom || (!!customHex && resolved?.in_gamut === true);
+
+  // Nothing can be added until the colour is settled — chosen from the chips
+  // for a ready-mixed product, mixed and in gamut for a custom one.
+  const colourReady = isCustom
+    ? (!!customHex && resolved?.in_gamut === true)
+    : (colors.length === 0 || !!selectedColorKey);
+
+  // A product stocked in one shade is not a choice, so it is made for them.
+  // With several, the pick stays deliberate — the same rule the sizes follow.
+  useEffect(() => {
+    if (colors.length === 1 && !selectedColorKey) {
+      setSelectedColorKey(colors[0].key);
+    }
+  }, [colors, selectedColorKey]);
 
   // Changing the colour can change the base, which retires the size that was
   // selected. Leaving it selected would post a variant the server rejects.
@@ -81,17 +126,37 @@ export default function ProductDetail() {
     }
   }, [sizeOptions, selectedVariant]);
 
-  useEffect(() => {
-    fetch(`${API_URL}/products/${id}`, {
-      headers: { 'Accept': 'application/json' },
-    })
-      .then(res => res.json())
+  // Guard against a slow response letting a focus refetch and a pull-to-refresh
+  // run over each other. Only the silent one bails — dropping the pull would
+  // leave its spinner stuck on.
+  const inFlight = useRef(false);
+
+  const fetchProduct = useCallback(async ({ silent = true } = {}) => {
+    if (silent && inFlight.current) return;
+    inFlight.current = true;
+
+    try {
+      const res = await fetch(`${API_URL}/products/${id}`, {
+        headers: { 'Accept': 'application/json' },
+      });
       // Auto-selecting a lone size is handled against sizeOptions, not the raw
       // list — on a custom product the raw list spans several bases.
-      .then(setProduct)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      setProduct(await res.json());
+    } catch (e) {
+      console.log('Product fetch error:', e.message);
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [id]);
+
+  // Re-read on focus and on resume, not once on mount. A customer could sit on
+  // a shade that sold out while they read and then tap Add to Cart; the server
+  // refuses it (422 with the real stock), but the page should not have promised
+  // the can. A selection that stops existing is dropped by the effects above,
+  // so a refresh cannot leave a variant selected that the server would reject.
+  useFocusRefresh(fetchProduct);
 
   // Someone looking at a fixed colour they don't quite want has no way to
   // discover that this brand will mix any colour — the custom product is a
@@ -116,8 +181,13 @@ export default function ProductDetail() {
   };
 
   const handleAddToCart = async () => {
-    if (isCustom && !colourReady) {
-      Alert.alert('Choose a Colour', 'Pick a colour we can mix before adding to cart.');
+    if (!colourReady) {
+      Alert.alert(
+        'Choose a Colour',
+        isCustom
+          ? 'Pick a colour we can mix before adding to cart.'
+          : 'Pick one of the colours above before adding to cart.',
+      );
       return;
     }
 
@@ -149,14 +219,21 @@ export default function ProductDetail() {
 
       const data = await res.json();
       if (res.ok) {
+        // The add endpoint answers with the cart summary, so the tab badge can
+        // move the moment the alert appears rather than at the next poll.
+        useBadgeStore.getState().setCart(data.item_count);
+
         // Recorded on the way out, not while picking: only a colour actually
         // bought earns a place in Recent.
         if (isCustom) rememberColor(customHex);
 
         Alert.alert(
           'Added to Cart!',
-          `${quantity}x ${product.description} (${selectedVariant.size_volume})`
-            + (isCustom ? ` in ${colorName.trim() || customHex}` : '') + ' added.',
+          `${quantity}x ${product.name} (${selectedVariant.size_volume})`
+            + (isCustom
+              ? ` in ${colorName.trim() || customHex}`
+              : selectedColor ? ` in ${selectedColor.label}` : '')
+            + ' added.',
           [
             { text: 'Continue Shopping', style: 'cancel' },
             { text: 'View Cart', onPress: () => router.push('/(tabs)/cart') },
@@ -210,7 +287,17 @@ export default function ProductDetail() {
     (!isCustom || acknowledged);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => { setRefreshing(true); fetchProduct({ silent: false }); }}
+          tintColor="#b91c1c"
+        />
+      }
+    >
 
       {/* Product Image Gallery — swipeable, first image is the cover */}
       {gallery.length > 0 ? (
@@ -245,9 +332,7 @@ export default function ProductDetail() {
           )}
         </View>
       ) : (
-        <View style={[styles.image, {
-          backgroundColor: (isCustom ? customHex : product.hex_code) || '#ccc',
-        }]} />
+        <View style={[styles.image, { backgroundColor: shownHex || '#ccc' }]} />
       )}
 
       <View style={styles.content}>
@@ -255,19 +340,22 @@ export default function ProductDetail() {
         {/* Brand + Color Dot */}
         <View style={styles.row}>
           <Text style={styles.brand}>{product.brand?.brand_name}</Text>
-          <View style={[styles.colorDot, {
-            backgroundColor: (isCustom ? customHex : product.hex_code) || '#ccc',
-          }]} />
+          <View style={[styles.colorDot, { backgroundColor: shownHex || '#ccc' }]} />
         </View>
 
-        {/* Name (with color name, like a normal e-commerce title) + meta line */}
+        {/* The product's own name, then the shade once one is chosen — the
+            shades are no longer separate products, so the title cannot carry
+            one until the customer picks it. */}
         <Text style={styles.desc}>
-          {product.description}{product.color_name ? ` — ${product.color_name}` : ''}
+          {product.name}{selectedColor ? ` — ${selectedColor.color_name || selectedColor.color_code}` : ''}
         </Text>
         <Text style={styles.category}>
-          {product.category?.category_name}
-          {product.color_code ? `  ·  Color Code: ${product.color_code}` : ''}
+          {(product.categories ?? []).map(c => c.category_name).join(' · ')}
+          {selectedColor?.color_code ? `  ·  Color Code: ${selectedColor.color_code}` : ''}
         </Text>
+        {!!product.description && (
+          <Text style={styles.blurb}>{product.description}</Text>
+        )}
 
         {/* Price + Stock (per selected size) */}
         <View style={styles.priceRow}>
@@ -314,6 +402,73 @@ export default function ProductDetail() {
           </View>
         )}
 
+        {/* ── COLOUR SELECTOR — the shades this line is stocked in ──
+            Grouped under the product exactly as the sizes are, so a paint that
+            comes in forty shades is one catalogue row rather than forty. */}
+        {colors.length > 0 && (
+          <View style={styles.sizeSection}>
+            <View style={styles.sizeLabelRow}>
+              <Text style={styles.sizeLabel}>{hasColorChoice ? 'Select Color' : 'Color'}</Text>
+              {hasColorChoice && !selectedColorKey && (
+                <Text style={styles.sizeRequired}>* Required</Text>
+              )}
+            </View>
+
+            <View style={styles.colorChips}>
+              {colors.map(color => {
+                const active  = selectedColorKey === color.key;
+                const soldOut = color.stock === 0;
+                return (
+                  <TouchableOpacity
+                    key={color.key}
+                    style={[
+                      styles.colorChip,
+                      active && styles.colorChipActive,
+                      soldOut && styles.sizeChipDisabled,
+                    ]}
+                    onPress={() => {
+                      if (soldOut) return;
+                      setSelectedColorKey(color.key);
+                      setSelectedVariant(null);   // sizes differ per shade
+                    }}
+                    disabled={soldOut}
+                  >
+                    <View style={[styles.colorSwatch, {
+                      backgroundColor: color.hex_code || '#ddd',
+                    }]} />
+                    <View style={styles.colorChipText}>
+                      <Text
+                        style={[
+                          styles.colorChipName,
+                          active && styles.sizeChipTextActive,
+                          soldOut && styles.sizeChipTextDisabled,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {color.color_name || color.color_code}
+                      </Text>
+                      <Text style={[
+                        styles.colorChipMeta,
+                        active && styles.sizeChipTextActive,
+                        soldOut && styles.sizeChipTextDisabled,
+                      ]}>
+                        {soldOut ? 'Sold out' : (color.color_code || 'Ready-mixed')}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* A photograph of paint is not a measurement of it. Said once,
+                here, where the swatches are. */}
+            <Text style={styles.colorDisclaimer}>
+              Screen colors are indicative only — check the shade card in store
+              before buying.
+            </Text>
+          </View>
+        )}
+
         {/* ── SIZE SELECTOR — each size has its own price + stock ── */}
         <View style={styles.sizeSection}>
           <View style={styles.sizeLabelRow}>
@@ -323,7 +478,7 @@ export default function ProductDetail() {
             )}
           </View>
           <View style={styles.sizeChips}>
-            {isCustom && !colourReady ? (
+            {!colourReady ? (
               <Text style={styles.sizeHint}>
                 Pick a colour above to see the sizes it comes in.
               </Text>
@@ -420,7 +575,7 @@ export default function ProductDetail() {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.addBtnText}>
-              {isCustom && !colourReady
+              {!colourReady
                 ? 'Choose a Colour First'
                 : !selectedVariant
                   ? 'Select a Size First'
@@ -455,7 +610,7 @@ export default function ProductDetail() {
           style={styles.arBtn}
           onPress={() => router.push({
             pathname: '/ar/live-filter',
-            params: { hex: (isCustom ? customHex : product.hex_code) ?? '' },
+            params: { hex: shownHex ?? '' },
           })}
         >
           <Text style={styles.arBtnText}>🎨 Preview on Wall</Text>
@@ -473,7 +628,10 @@ export default function ProductDetail() {
             pathname: '/ar/estimator',
             params: {
               productId: product.id,
-              hex: (isCustom ? customHex : product.hex_code) ?? '',
+              hex: shownHex ?? '',
+              // Without the shade the estimator would price every size of
+              // every colour the line carries, not the one being bought.
+              colorKey: selectedColorKey ?? '',
             },
           })}
         >
@@ -505,7 +663,8 @@ const styles = StyleSheet.create({
   brand:              { fontSize: 13, color: '#b91c1c', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   colorDot:           { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: '#e0e0e0' },
   desc:               { fontSize: 19, fontWeight: '700', color: '#1a1a1a', marginBottom: 4, lineHeight: 26 },
-  category:           { fontSize: 13, color: '#999', marginBottom: 16 },
+  category:           { fontSize: 13, color: '#999', marginBottom: 8 },
+  blurb:              { fontSize: 13.5, color: '#666', lineHeight: 20, marginBottom: 16 },
 
   priceRow:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   price:              { fontSize: 28, fontWeight: '700', color: '#1a1a1a' },
@@ -534,6 +693,26 @@ const styles = StyleSheet.create({
   sizeChipTextDisabled: { color: '#bbb' },
   sizeChipPrice:      { fontSize: 11, fontWeight: '600', color: '#999', marginTop: 2 },
   sizeHint:           { fontSize: 13, color: '#999', lineHeight: 19, paddingVertical: 4 },
+
+  // Colour selector. Wider than a size chip because a shade name has to be
+  // readable beside its swatch — "Burnt Sienna" does not fit in 76px.
+  colorChips:         { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  colorChip:          {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 12, paddingVertical: 9,
+    borderRadius: 10, borderWidth: 1.5,
+    borderColor: '#e0e0e0', backgroundColor: '#f9f9f9',
+    minWidth: 148, maxWidth: '100%',
+  },
+  colorChipActive:    { borderColor: '#b91c1c', backgroundColor: '#fef2f2' },
+  colorSwatch:        {
+    width: 30, height: 30, borderRadius: 8,
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)',
+  },
+  colorChipText:      { flexShrink: 1 },
+  colorChipName:      { fontSize: 14, fontWeight: '700', color: '#444' },
+  colorChipMeta:      { fontSize: 11, fontWeight: '600', color: '#999', marginTop: 1 },
+  colorDisclaimer:    { fontSize: 11.5, color: '#a1a1aa', lineHeight: 17, marginTop: 10 },
 
   // Custom colour
   feeNote:            { fontSize: 12, color: '#666', marginTop: -16, marginBottom: 20 },

@@ -33,6 +33,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LogBox } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 
 // VisionCamera's own SkiaCameraCanvas calls console.error with this on the New
 // Architecture. It concerns a <Canvas> sizing feature we never use — we render
@@ -439,6 +440,13 @@ const FAST_PAN_RAD_S = 0.35;
 const PAN_INFER_MS = 500;
 
 export default function LiveFilter() {
+  // A pushed screen stays MOUNTED underneath, so a hardcoded isActive={true}
+  // left this camera holding the device while the next screen opened its own.
+  // Android grants the camera to one session at a time: the second preview came
+  // up black, and two frame processors ran inference on one GPU until the app
+  // stopped responding. Focus is the only thing that says "my turn".
+  const isFocused = useIsFocused();
+
   const { hex, finish } = useLocalSearchParams();
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -1114,7 +1122,7 @@ export default function LiveFilter() {
         style={StyleSheet.absoluteFill}
         device={device}
         format={format}
-        isActive={true}
+        isActive={isFocused}
         frameProcessor={frameProcessor}
       />
 

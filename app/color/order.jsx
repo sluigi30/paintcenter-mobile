@@ -107,7 +107,7 @@ export default function OrderColorScreen() {
 
               <View style={styles.cardInfo}>
                 <Text style={styles.cardBrand}>{item.brand?.brand_name}</Text>
-                <Text style={styles.cardName} numberOfLines={2}>{item.description}</Text>
+                <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
                 <Text style={styles.cardMeta}>
                   {item.size_volume || '—'}
                 </Text>

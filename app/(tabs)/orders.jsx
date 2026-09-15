@@ -6,6 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
+import { useResumeWhileFocused } from '../../lib/screenRefresh';
 
 import { API_URL, STORAGE_URL } from '../../constants/api';
 import CancelOrderModal from '../../components/CancelOrderModal';
@@ -69,6 +70,11 @@ export default function Orders() {
     return () => clearInterval(timer);
   }, [token]));
 
+  // The OS freezes the interval above while the app is backgrounded, so an
+  // order that moved overnight would sit stale for another full tick on the
+  // screen someone reopened the app to check.
+  useResumeWhileFocused(useCallback(() => fetchOrders({ silent: true }), [token]));
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchOrders();
@@ -113,7 +119,7 @@ export default function Orders() {
           {items.slice(0, THUMB_LIMIT).map((line) => (
             <View
               key={line.id}
-              style={[styles.thumb, { backgroundColor: line.product?.hex_code || '#f0f0f0' }]}
+              style={[styles.thumb, { backgroundColor: line.display_color || '#f0f0f0' }]}
             >
               {line.product?.image ? (
                 <Image
@@ -133,7 +139,8 @@ export default function Orders() {
 
           <View style={styles.summaryText}>
             <Text style={styles.itemLine} numberOfLines={1}>
-              {items[0]?.product?.description ?? 'Order'}
+              {items[0]?.product?.name ?? 'Order'}
+              {items[0]?.color_label ? ` — ${items[0].color_label}` : ''}
             </Text>
             <Text style={styles.metaLine} numberOfLines={1}>
               {item.order_type === 'pickup' ? 'Store Pickup' : 'Delivery'}

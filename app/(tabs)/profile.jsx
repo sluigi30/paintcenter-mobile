@@ -1,12 +1,14 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
+import { useBadgeStore } from '../../stores/badgeStore';
 
 export default function Profile() {
   const { user, logout } = useAuthStore();
 
   const handleLogout = async () => {
     await logout();
+    useBadgeStore.getState().reset();
     router.replace('/(auth)/login');
   };
 

@@ -1,11 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
+import { useBadgeStore } from '../../stores/badgeStore';
+import { useResumeWhileFocused } from '../../lib/screenRefresh';
 
 import { API_URL } from '../../constants/api';
+
+// How often the open thread re-reads itself. Only ever runs while the tab is
+// on screen — see the useFocusEffect below.
+const MESSAGE_POLL_MS = 5000;
 
 // Bubbles carry the date as well as the time — order updates land here and get
 // referred to by when they were placed, so "Aug 13" has to be readable in the
@@ -49,6 +56,9 @@ export default function Messages() {
       });
       const data = await res.json();
       setMessages(data);
+      // Fetching the thread marks it read server-side, so the badge is stale
+      // the instant this returns. No round trip needed to know it is zero.
+      useBadgeStore.getState().setUnread(0);
     } catch (e) {
       console.log('Messages error:', e.message);
     } finally {
@@ -56,18 +66,32 @@ export default function Messages() {
     }
   };
 
+  // Which admin account this customer is talking to. Looked up once — it does
+  // not change while the app is open. Setting it re-runs the poll below, which
+  // is what fetches the thread for the first time.
   useEffect(() => {
-    const init = async () => {
-      const aId = await getAdmin();
-      if (aId) fetchMessages(aId);
-    };
-    init();
+    getAdmin();
+  }, []);
 
-    const interval = setInterval(() => {
-      if (adminId) fetchMessages(adminId);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [adminId]);
+  // Poll ONLY while the tab is actually on screen, the same way the Orders tab
+  // does it. A plain useEffect cleans up when the screen is DESTROYED, and tab
+  // screens are kept mounted so switching back is instant — so the timer never
+  // stopped, and the thread was re-fetched every 5s while the customer was
+  // browsing paint, filling the cart, checking out.
+  useFocusEffect(useCallback(() => {
+    if (!adminId) return;
+
+    fetchMessages(adminId);
+    const timer = setInterval(() => fetchMessages(adminId), MESSAGE_POLL_MS);
+
+    return () => clearInterval(timer);
+  }, [adminId, token]));
+
+  // Same frozen-timer gap: a reply that arrived while the app was away should
+  // be there on the way back in, not five seconds later.
+  useResumeWhileFocused(useCallback(() => {
+    if (adminId) fetchMessages(adminId);
+  }, [adminId, token]));
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !adminId) return;

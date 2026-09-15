@@ -37,16 +37,20 @@ import { useMeasureStore } from '../../stores/measureStore';
 // usual trade spread rates; the low end for thirsty surfaces is what stops a
 // bare-block wall being under-bought by a third.
 const SURFACES = [
-  { key: 'painted',  label: 'Previously painted',      hint: 'Smooth wall that already has paint on it', rate: 12 },
+  { key: 'smooth',   label: 'Smooth wall',              hint: 'Sealed, even finish — plastered or already painted', rate: 12 },
   { key: 'concrete', label: 'Bare concrete or masonry', hint: 'New plaster, skim coat, hollow block',     rate: 9  },
   { key: 'rough',    label: 'Rough or porous',          hint: 'Textured, unsealed, very absorbent',       rate: 7  },
   { key: 'wood',     label: 'Wood',                     hint: 'Doors, panels, plywood',                   rate: 11 },
   { key: 'metal',    label: 'Metal',                    hint: 'Gates, grills, roofing',                   rate: 13 },
 ];
 
-// Standard openings, so the user counts doors instead of measuring them.
-const DOOR_AREA   = 1.89;   // 0.9 m × 2.1 m
-const WINDOW_AREA = 1.20;   // 1.2 m × 1.0 m
+// Openings start at the usual sizes so the common case is still "count them,
+// don't measure them" — but they are a STARTING POINT, not a fact. A PH house
+// with a 2.4 m sliding door or jalousie strips nothing like a standard window
+// would otherwise have its openings mis-deducted, and openings come straight
+// off the paint you buy.
+const DEFAULT_DOOR   = { w: '0.9', h: '2.1' };
+const DEFAULT_WINDOW = { w: '1.2', h: '1.0' };
 
 const COATS = [
   { value: 1, hint: 'Touch-up, same colour' },
@@ -217,6 +221,60 @@ function WallRow({ index, wall, canDelete, onChange, onDelete, onMeasure }) {
   );
 }
 
+/**
+ * A count AND the size of one, because neither alone is enough: a standard door
+ * is a fine default and a wrong answer for the sliding one in the living room.
+ *
+ * The size inputs appear once there is something to size — at zero they would
+ * be two empty boxes asking about openings the user does not have.
+ */
+function OpeningRow({ label, opening, onChange }) {
+  const each = num(opening.w) * num(opening.h);
+
+  return (
+    <View>
+      <Counter
+        label={label}
+        hint={each > 0 ? `${each.toFixed(2)} m² each` : 'Enter a size below'}
+        value={opening.count}
+        onChange={(count) => onChange({ ...opening, count })}
+      />
+
+      {opening.count > 0 && (
+        <View style={styles.openingSize}>
+          <Text style={styles.openingSizeLabel}>Size of each</Text>
+
+          <View style={styles.dimBox}>
+            <TextInput
+              style={styles.dimInput}
+              placeholder="0"
+              placeholderTextColor="#c4c4c4"
+              keyboardType="decimal-pad"
+              value={opening.w}
+              onChangeText={(w) => onChange({ ...opening, w })}
+            />
+            <Text style={styles.dimUnit}>m</Text>
+          </View>
+
+          <Text style={styles.times}>×</Text>
+
+          <View style={styles.dimBox}>
+            <TextInput
+              style={styles.dimInput}
+              placeholder="0"
+              placeholderTextColor="#c4c4c4"
+              keyboardType="decimal-pad"
+              value={opening.h}
+              onChangeText={(h) => onChange({ ...opening, h })}
+            />
+            <Text style={styles.dimUnit}>m</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function Counter({ label, hint, value, onChange }) {
   return (
     <View style={styles.counterRow}>
@@ -267,25 +325,34 @@ export default function PaintCalculator() {
   const nextWallId  = useRef(2);
   const measuringId = useRef(null);      // which wall asked for the camera
 
-  const [doors, setDoors]     = useState(0);
-  const [windows, setWindows] = useState(0);
+  // Each opening carries its own size, kept as strings like the wall rows so a
+  // half-typed "2." is a string in progress rather than a NaN in the total.
+  const [doors, setDoors]     = useState({ count: 0, ...DEFAULT_DOOR });
+  const [windows, setWindows] = useState({ count: 0, ...DEFAULT_WINDOW });
   const [surface, setSurface] = useState(SURFACES[0].key);
   const [coats, setCoats]     = useState(2);
 
   const [resolved, setResolved] = useState(null);
 
   const isCustom = !!product?.is_custom_color;
-  // A custom product has no colour of its own; the one being priced came in
-  // from the picker or the wall preview.
-  const hex      = product?.hex_code || params.hex || null;
+
+  // The shade being priced arrives from the caller — the picker, the wall
+  // preview, or the colour the customer chose on the product page. A product
+  // now stocks many shades, so it has no single colour to fall back to.
+  const chosenColor = product?.colors?.find((c) => c.key === params.colorKey) ?? null;
+  const hex = params.hex || chosenColor?.hex_code || product?.colors?.[0]?.hex_code || null;
+
   const allVariants = product?.active_variants ?? [];
 
-  // Only cans of the base that can carry this colour are buyable, so only
-  // those may feed the plan — otherwise the estimate quotes cans the cart
-  // will refuse. '' means the line makes no base distinction.
+  // Only cans that can actually be bought may feed the plan, or the estimate
+  // quotes cans the cart will refuse: for a custom product that means the base
+  // this colour can go into ('' = the line makes no base distinction), and for
+  // a ready-mixed one the sizes the CHOSEN SHADE comes in.
   const variants = isCustom
     ? allVariants.filter((v) => !v.base_code || v.base_code === resolved?.base_code)
-    : allVariants;
+    : params.colorKey
+      ? allVariants.filter((v) => v.color_key === params.colorKey)
+      : allVariants;
 
   useEffect(() => {
     if (!isCustom || !hex) return;
@@ -347,7 +414,8 @@ export default function PaintCalculator() {
 
   const est = useMemo(() => {
     const wallArea = walls.reduce((sum, w) => sum + num(w.w) * num(w.h), 0);
-    const openings = doors * DOOR_AREA + windows * WINDOW_AREA;
+    const openings = doors.count * num(doors.w) * num(doors.h)
+                   + windows.count * num(windows.w) * num(windows.h);
     const net      = Math.max(0, wallArea - openings);
     const toCover  = net * coats;
     const rate     = (SURFACES.find((s) => s.key === surface) ?? SURFACES[0]).rate;
@@ -446,11 +514,11 @@ export default function PaintCalculator() {
             <View style={[styles.chipDot, { backgroundColor: hex || '#ccc' }]} />
             <View style={styles.chipText}>
               <Text style={styles.chipName} numberOfLines={1}>
-                {product.description}{product.color_name ? ` — ${product.color_name}` : ''}
+                {product.name}{chosenColor ? ` — ${chosenColor.color_name || chosenColor.color_code}` : ''}
               </Text>
               <Text style={styles.chipMeta} numberOfLines={1}>
                 {product.brand?.brand_name}
-                {product.category?.category_name ? `  ·  ${product.category.category_name}` : ''}
+                {product.categories?.length ? `  ·  ${product.categories.map((c) => c.category_name).join(' · ')}` : ''}
               </Text>
             </View>
           </View>
@@ -494,10 +562,10 @@ export default function PaintCalculator() {
         <Section
           step="2"
           title="Doors &amp; Windows"
-          hint="Taken off the total at standard sizes, so you don't have to measure them."
+          hint="Counted at the usual sizes. Change them if yours are different — openings come straight off the paint you buy."
         >
-          <Counter label="Doors"   hint="0.9 × 2.1 m each" value={doors}   onChange={setDoors} />
-          <Counter label="Windows" hint="1.2 × 1.0 m each" value={windows} onChange={setWindows} />
+          <OpeningRow label="Doors"   opening={doors}   onChange={setDoors} />
+          <OpeningRow label="Windows" opening={windows} onChange={setWindows} />
         </Section>
 
         {/* 3 ── SURFACE ───────────────────────────────────── */}
@@ -560,7 +628,7 @@ export default function PaintCalculator() {
           <View style={styles.emptyResult}>
             <Ionicons name="alert-circle-outline" size={26} color="#f97316" />
             <Text style={styles.emptyText}>
-              The doors and windows add up to more than the wall itself. Check the counts above.
+              The doors and windows add up to more than the wall itself. Check the counts and sizes above.
             </Text>
           </View>
         ) : (
@@ -705,6 +773,10 @@ const styles = StyleSheet.create({
   counterCtl:       { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 4 },
   counterBtn:       { width: 32, height: 32, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   counterValue:     { minWidth: 26, textAlign: 'center', fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+
+  // Per-opening size, indented under its counter so it reads as belonging to it
+  openingSize:      { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 2, paddingBottom: 12, marginTop: -4, flexWrap: 'wrap' },
+  openingSizeLabel: { fontSize: 12, color: '#999', marginRight: 2 },
 
   // Surface options
   option:           { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#f0f0f0', marginBottom: 8 },

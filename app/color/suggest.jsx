@@ -17,6 +17,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Camera, useCameraDevice, useCameraPermission, useCameraFormat, useFrameProcessor,
@@ -58,6 +59,13 @@ const SAMPLE_STRIDE = 8;
 const MODEL_ROTATION = '90deg';
 
 export default function ColorSuggest() {
+  // A pushed screen stays MOUNTED underneath, so a hardcoded isActive={true}
+  // left this camera holding the device while the next screen opened its own.
+  // Android grants the camera to one session at a time: the second preview came
+  // up black, and two frame processors ran inference on one GPU until the app
+  // stopped responding. Focus is the only thing that says "my turn".
+  const isFocused = useIsFocused();
+
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const { resize } = useResizePlugin();
@@ -212,7 +220,7 @@ export default function ColorSuggest() {
         style={StyleSheet.absoluteFill}
         device={device}
         format={format}
-        isActive={true}
+        isActive={isFocused}
         frameProcessor={frameProcessor}
       />
 
